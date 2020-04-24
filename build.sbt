@@ -3,9 +3,8 @@ import sbt.Keys.parallelExecution
 import sbt.moduleFilter
 import sbt._
 
-lazy val scala211 = "2.11.12"
 lazy val scala212 = "2.12.10"
-lazy val supportedScalaVersions = List(scala212, scala211)
+lazy val supportedScalaVersions = List(scala212)
 
 // factor out common settings
 ThisBuild / scalacOptions += "-target:jvm-1.8"
