@@ -3,13 +3,28 @@ package com.datastax.spark.connector.datasource
 import java.util
 
 import com.datastax.oss.driver.api.core.metadata.schema.TableMetadata
-import org.apache.spark.sql.connector.catalog.{Table, TableCapability}
+import com.datastax.spark.connector.cql.CassandraConnector
+import com.datastax.spark.connector.util._
+import org.apache.spark.SparkConf
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.connector.catalog.{SupportsRead, Table, TableCapability}
 import org.apache.spark.sql.connector.expressions.{Expressions, Transform}
+import org.apache.spark.sql.connector.read.ScanBuilder
 import org.apache.spark.sql.types.StructType
+import org.apache.spark.sql.util.CaseInsensitiveStringMap
 
 import scala.collection.JavaConverters._
 
-class CassandraTable(val metadata: TableMetadata) extends Table {
+case class CassandraTable(
+  session: SparkSession,
+  catalogConf: SparkConf,
+  connector: CassandraConnector,
+  catalogName: String,
+  metadata: TableMetadata)
+
+  extends Table
+  with SupportsRead {
+
   override def name(): String = metadata.getName.asInternal()
 
   override def schema(): StructType = CassandraSourceUtil.toStructType(metadata)
@@ -31,12 +46,11 @@ class CassandraTable(val metadata: TableMetadata) extends Table {
       ).asJava
   }
 
-  override def capabilities(): util.Set[TableCapability] = Set.empty[TableCapability].asJava
+  override def capabilities(): util.Set[TableCapability] = Set(TableCapability.BATCH_READ).asJava
 
-}
-
-object CassandraTable {
-  def apply(metadata: TableMetadata): CassandraTable = {
-    new CassandraTable(metadata)
+  override def newScanBuilder(options: CaseInsensitiveStringMap): ScanBuilder = {
+    val tableDef = tableFromCassandra(connector, metadata.getKeyspace.asInternal(), name())
+    CassandraScanBuilder(session, catalogConf, tableDef, catalogName, options)
   }
 }
+

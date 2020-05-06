@@ -76,7 +76,7 @@ trait CassandraTableRowReaderProvider[R] {
   }
 
   /** Returns the columns to be selected from the table.*/
-  lazy val selectedColumnRefs: Seq[ColumnRef] = {
+  lazy val selectedColumnRefs: IndexedSeq[ColumnRef] = {
     val providedColumns =
       columnNames match {
         case AllColumns => tableDef.columns.map(col => col.columnName: ColumnRef)
@@ -89,8 +89,8 @@ trait CassandraTableRowReaderProvider[R] {
     // E.g. even if the user selects AllColumns,
     // this will make sure only the columns needed by the RowReader are actually fetched.
     rowReader.neededColumns match {
-      case Some(neededColumns) => providedColumns.filter(neededColumns.toSet)
-      case None => providedColumns
+      case Some(neededColumns) => providedColumns.filter(neededColumns.toSet).toIndexedSeq
+      case None => providedColumns.toIndexedSeq
     }
   }
 

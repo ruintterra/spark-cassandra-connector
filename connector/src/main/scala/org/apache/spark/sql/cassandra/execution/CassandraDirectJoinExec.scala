@@ -1,9 +1,9 @@
 package org.apache.spark.sql.cassandra.execution
 
+import com.datastax.spark.connector.datasource.{UnsafeRowReaderFactory, UnsafeRowWriterFactory}
 import com.datastax.spark.connector.{ColumnName, SomeColumns}
 import com.datastax.spark.connector.rdd.{CassandraJoinRDD, CassandraLeftJoinRDD, CassandraTableScanRDD}
 import org.apache.spark.rdd.RDD
-import org.apache.spark.sql.cassandra.execution.unsafe.{UnsafeRowReaderFactory, UnsafeRowWriterFactory}
 import org.apache.spark.sql.catalyst.InternalRow
 import org.apache.spark.sql.catalyst.expressions.{And, Attribute, BindReferences, EqualTo, Expression, GenericInternalRow, JoinedRow, Predicate, UnsafeProjection, UnsafeRow}
 import org.apache.spark.sql.catalyst.plans._

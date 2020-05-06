@@ -108,8 +108,6 @@ class CassandraTableScanRDDSpec extends SparkCassandraITFlatSpecBase with Defaul
     minimalSplitCountThreshold: Int): CassandraTableScanRDD[AnyRef] = {
     val readConf = new ReadConf(splitSizeInMB = splitSizeMB, splitCount = splitCount)
 
-    new CassandraTableScanRDD[AnyRef](sc, conn, ks, tableName, readConf = readConf) {
-      override def minimalSplitCount: Int = minimalSplitCountThreshold
-    }
+    new CassandraTableScanRDD[AnyRef](sc, conn, ks, tableName, readConf = readConf)
   }
 }

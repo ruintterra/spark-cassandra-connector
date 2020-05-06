@@ -10,6 +10,7 @@ import com.datastax.oss.driver.api.querybuilder.SchemaBuilder
 import com.datastax.oss.driver.api.querybuilder.schema.{AlterTableAddColumn, AlterTableAddColumnEnd, AlterTableWithOptions, AlterTableWithOptionsEnd, CreateTable, OngoingPartitionKey}
 import com.datastax.spark.connector.cql.CassandraConnector
 import com.datastax.spark.connector.datasource.CassandraSourceUtil._
+import org.apache.spark.sql.SparkSession
 import org.apache.spark.{SparkConf, SparkEnv}
 import org.apache.spark.sql.catalyst.analysis.{NamespaceAlreadyExistsException, NoSuchNamespaceException, NoSuchTableException, TableAlreadyExistsException}
 import org.apache.spark.sql.connector.catalog.NamespaceChange.{RemoveProperty, SetProperty}
@@ -35,6 +36,8 @@ class CassandraCatalog extends CatalogPlugin
   with TableCatalog
   with SupportsNamespaces {
 
+  lazy val sparkSession = SparkSession.active
+
   val OnlyOneNamespace = "Cassandra only supports a keyspace name of a single level (no periods in keyspace name)"
 
   /**
@@ -57,7 +60,8 @@ class CassandraCatalog extends CatalogPlugin
     //Todo Add naming suggestions
   }
 
-  var cassandraConnector: CassandraConnector = _
+  var connector: CassandraConnector = _
+  var connectorConf: SparkConf = _
   var catalogOptions: CaseInsensitiveStringMap = _
 
   //Something to distinguish this Catalog from others with different hosts
@@ -71,16 +75,16 @@ class CassandraCatalog extends CatalogPlugin
   }
 
   private def getMetadata = {
-    cassandraConnector.withSessionDo(_.getMetadata)
+    connector.withSessionDo(_.getMetadata)
   }
 
   override def initialize(name: String, options: CaseInsensitiveStringMap): Unit = {
     catalogOptions = options
     val sparkConf = Try(SparkEnv.get.conf).getOrElse(new SparkConf())
-    val connectorConf = consolidateConfs(sparkConf, options.asCaseSensitiveMap().asScala.toMap, name)
-    cassandraConnector = CassandraConnector(connectorConf)
+    connectorConf = consolidateConfs(sparkConf, options.asCaseSensitiveMap().asScala.toMap, name)
+    connector = CassandraConnector(connectorConf)
     catalogName = name
-    nameIdentifier = cassandraConnector.conf.contactInfo.endPointStr()
+    nameIdentifier = connector.conf.contactInfo.endPointStr()
 
   }
 
@@ -134,7 +138,7 @@ class CassandraCatalog extends CatalogPlugin
     val ksMeta = metadata.asScala
     checkNamespace(namespace)
     if (getMetadata.getKeyspace(fromInternal(namespace.head)).asScala.isDefined) throw new NamespaceAlreadyExistsException(s"${namespace.head} already exists")
-    cassandraConnector.withSessionDo{ session =>
+    connector.withSessionDo{ session =>
       val createStmt = SchemaBuilder.createKeyspace(namespace.head)
       val replicationClass = ksMeta.getOrElse(ReplicationClass, throw new CassandraCatalogException(s"Creating a keyspace requires a $ReplicationClass DBOption for the replication strategy class"))
       val createWithReplication = replicationClass.toLowerCase(Locale.ROOT) match {
@@ -180,7 +184,7 @@ class CassandraCatalog extends CatalogPlugin
       case other => throw new CassandraCatalogException(s"Unknown replication strategy $other")
     }
 
-    cassandraConnector.withSessionDo( session =>
+    connector.withSessionDo(session =>
       session.execute(alterWithReplication.asCql())
     )
   }
@@ -189,7 +193,7 @@ class CassandraCatalog extends CatalogPlugin
     checkNamespace(namespace)
     val keyspace = getMetadata.getKeyspace(fromInternal(namespace.head)).asScala
       .getOrElse(throw nameSpaceMissing(namespace))
-    val dropResult = cassandraConnector.withSessionDo(session =>
+    val dropResult = connector.withSessionDo(session =>
       session.execute(SchemaBuilder.dropKeyspace(keyspace.getName).asCql()))
     dropResult.wasApplied()
   }
@@ -215,7 +219,7 @@ class CassandraCatalog extends CatalogPlugin
 
   override def loadTable(ident: Identifier): Table = {
     val tableMeta = getTableMetaData(ident)
-    CassandraTable(tableMeta)
+    CassandraTable(sparkSession, connectorConf, connector, catalogName, tableMeta)
   }
 
   val PartitionKey = "partition_key"
@@ -280,7 +284,7 @@ class CassandraCatalog extends CatalogPlugin
         }
       }
 
-    val protocolVersion = cassandraConnector.withSessionDo(_.getContext.getProtocolVersion)
+    val protocolVersion = connector.withSessionDo(_.getContext.getProtocolVersion)
 
     val columnToType = schema.fields.map( sparkField =>
       (fromInternal(sparkField.name), sparkSqlToJavaDriverType(sparkField.dataType, protocolVersion))
@@ -319,7 +323,7 @@ class CassandraCatalog extends CatalogPlugin
     }
 
     //TODO may have to add a debounce wait
-    cassandraConnector.withSessionDo(_.execute(createTableWithProperties.asCql()))
+    connector.withSessionDo(_.execute(createTableWithProperties.asCql()))
 
     loadTable(ident)
   }
@@ -353,7 +357,7 @@ class CassandraCatalog extends CatalogPlugin
     * Add Columns
     */
   override def alterTable(ident: Identifier, changes: TableChange*): Table = {
-    val protocolVersion = cassandraConnector.withSessionDo(_.getContext.getProtocolVersion)
+    val protocolVersion = connector.withSessionDo(_.getContext.getProtocolVersion)
     val tableMetadata = getTableMetaData(ident)
     val keyspace = tableMetadata.getKeyspace
     val table = tableMetadata.getName
@@ -382,12 +386,12 @@ class CassandraCatalog extends CatalogPlugin
         SchemaBuilder.alterTable(keyspace, table).asInstanceOf[AlterTableWithOptionsEnd]) { case (alter, prop) =>
         alter.withOption(prop.property(), parseProperty(prop.value()))
       }
-      cassandraConnector.withSessionDo(_.execute(setOptionsStatement.asCql()))
+      connector.withSessionDo(_.execute(setOptionsStatement.asCql()))
     }
 
     if (columnsToRemove.nonEmpty) {
       val dropColumnsStatement = SchemaBuilder.alterTable(keyspace, table).dropColumns(columnsToRemove: _*)
-      cassandraConnector.withSessionDo(_.execute(dropColumnsStatement.asCql()))
+      connector.withSessionDo(_.execute(dropColumnsStatement.asCql()))
     }
 
     if (columnsToAdd.nonEmpty) {
@@ -396,7 +400,7 @@ class CassandraCatalog extends CatalogPlugin
       ) { case ((colName, dataType), alterBuilder) =>
         alterBuilder.addColumn(colName, dataType)
       }.asInstanceOf[AlterTableAddColumnEnd]
-      cassandraConnector.withSessionDo(_.execute(addColumnStatement.asCql()))
+      connector.withSessionDo(_.execute(addColumnStatement.asCql()))
     }
 
     loadTable(ident)
@@ -404,7 +408,7 @@ class CassandraCatalog extends CatalogPlugin
 
   override def dropTable(ident: Identifier): Boolean = {
     val tableMeta = getTableMetaData(ident)
-    cassandraConnector.withSessionDo(_.execute(SchemaBuilder.dropTable(tableMeta.getKeyspace, tableMeta.getName).asCql())).wasApplied()
+    connector.withSessionDo(_.execute(SchemaBuilder.dropTable(tableMeta.getKeyspace, tableMeta.getName).asCql())).wasApplied()
   }
 
   override def renameTable(oldIdent: Identifier, newIdent: Identifier): Unit = {

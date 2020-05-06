@@ -1,11 +1,10 @@
-package org.apache.spark.sql.cassandra.execution.unsafe
+package com.datastax.spark.connector.datasource
 
 import com.datastax.spark.connector.ColumnRef
 import com.datastax.spark.connector.cql.TableDef
 import com.datastax.spark.connector.writer.{RowWriter, RowWriterFactory}
 import org.apache.spark.sql.catalyst.CatalystTypeConverters
 import org.apache.spark.sql.catalyst.expressions.{Expression, UnsafeProjection, UnsafeRow}
-import org.apache.spark.sql.types.StructType
 
 class UnsafeRowWriterFactory(expressions: Seq[Expression]) extends RowWriterFactory[UnsafeRow] {
   /** Creates a new `RowWriter` instance.

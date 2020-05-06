@@ -234,8 +234,6 @@ class CassandraMergeJoinRDD[L,R](
       leftScanRDD.partitions else rightScanRDD.partitions
   }
 
-  private lazy val nodeAddresses = new NodeAddresses(connector)
   override def getPreferredLocations(split: Partition): Seq[String] =
-    split.asInstanceOf[CassandraPartition[_, _]].endpoints.flatMap(nodeAddresses.hostNames).toSeq
-
+    split.asInstanceOf[CassandraPartition[_, _]].endpoints
 }
