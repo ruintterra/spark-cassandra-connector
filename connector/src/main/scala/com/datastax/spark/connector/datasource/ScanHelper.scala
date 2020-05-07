@@ -135,7 +135,8 @@ object ScanHelper extends Logging {
     connector: CassandraConnector,
     tableDef: TableDef,
     whereClause: CqlWhereClause,
-    minCount: Int,
+    minSplitCount: Int,
+    partitionCount: Option[Int],
     splitSize: Long) : CassandraPartitionGenerator[V, T] = {
 
     implicit val tokenFactory = TokenFactory.forSystemLocalPartitioner(connector)
@@ -143,24 +144,27 @@ object ScanHelper extends Logging {
     if (containsPartitionKey(tableDef, whereClause)) {
       CassandraPartitionGenerator(connector, tableDef, 1)
     } else {
-
-      require(minCount > 0, "Split size must be greater than zero.")
-
-      val estimateDataSize = new DataSizeEstimates(connector, tableDef.keyspaceName, tableDef.tableName).dataSizeInBytes
-      val splitCount = if (estimateDataSize == Long.MaxValue || estimateDataSize < 0) {
-        logWarning(
-          s"""Size Estimates has overflowed and calculated that the data size is Infinite.
-             |Falling back to $minCount (2 * SparkCores + 1) Split Count.
-             |This is most likely occurring because you are reading size_estimates
-             |from a DataCenter which has very small primary ranges. Explicitly set
-             |the splitCount when reading to manually adjust this.""".stripMargin)
-        minCount
-      } else {
-        val splitCountEstimate = estimateDataSize / splitSize
-        Math.max(splitCountEstimate.toInt, minCount)
+      partitionCount match {
+        case Some(splitCount) => {
+          CassandraPartitionGenerator(connector, tableDef, splitCount)
+        }
+        case None => {
+          val estimateDataSize = new DataSizeEstimates(connector, tableDef.keyspaceName, tableDef.tableName).dataSizeInBytes
+          val splitCount = if (estimateDataSize == Long.MaxValue || estimateDataSize < 0) {
+            logWarning(
+              s"""Size Estimates has overflowed and calculated that the data size is Infinite.
+                 |Falling back to $minSplitCount (2 * SparkCores + 1) Split Count.
+                 |This is most likely occurring because you are reading size_estimates
+                 |from a DataCenter which has very small primary ranges. Explicitly set
+                 |the splitCount when reading to manually adjust this.""".stripMargin)
+            minSplitCount
+          } else {
+            val splitCountEstimate = estimateDataSize / splitSize
+            Math.max(splitCountEstimate.toInt, Math.max(minSplitCount, 1))
+          }
+          CassandraPartitionGenerator(connector, tableDef, splitCount)
+        }
       }
-      CassandraPartitionGenerator(connector, tableDef, splitCount)
     }
   }
-
 }

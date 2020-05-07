@@ -244,7 +244,8 @@ case class CassandraScan(
     connector,
     tableDef,
     cqlWhereClause,
-    readConf.splitCount.getOrElse(session.sparkContext.defaultParallelism * 2 + 1),
+    session.sparkContext.defaultParallelism * 2 + 1,
+    readConf.splitCount,
     readConf.splitSizeInMB * 1024L * 1024L)
 
   lazy val inputPartitions = partitionGenerator.getInputPartitions()

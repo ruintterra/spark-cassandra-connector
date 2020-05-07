@@ -8,14 +8,12 @@ import com.datastax.spark.connector.datasource.ScanHelper
 import com.datastax.spark.connector.datasource.ScanHelper.CqlQueryParts
 import com.datastax.spark.connector.rdd.CassandraLimit._
 import com.datastax.spark.connector.rdd.partitioner.dht.{Token => ConnectorToken}
-import com.datastax.spark.connector.rdd.partitioner.{CassandraPartition, CassandraPartitionGenerator, CqlTokenRange, NodeAddresses, _}
+import com.datastax.spark.connector.rdd.partitioner.{CassandraPartition, _}
 import com.datastax.spark.connector.rdd.reader._
-import com.datastax.spark.connector.util.{CountingIterator, CqlWhereParser, Logging, ReflectionUtil}
+import com.datastax.spark.connector.util.{CountingIterator}
 import com.datastax.spark.connector.writer.RowWriterFactory
 import org.apache.spark.metrics.InputMetricsUpdater
 import org.apache.spark.rdd.{PartitionCoalescer, RDD}
-import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.connector.read.{InputPartition, PartitionReader, PartitionReaderFactory}
 import org.apache.spark.{Partition, Partitioner, SparkContext, TaskContext}
 
 import scala.collection.JavaConversions._
@@ -218,11 +216,16 @@ class CassandraTableScanRDD[R] private[connector](
     rwf: RowWriterFactory[K]): CassandraTableScanRDD[(K, R)] =
     keyBy(AllColumns)
 
+  def minimalSplitCount: Int = {
+    context.defaultParallelism * 2 + 1
+  }
+
   @transient lazy val partitionGenerator = ScanHelper.getPartitionGenerator(
     connector,
     tableDef,
     where,
-    context.defaultParallelism * 2 + 1 ,
+    minimalSplitCount,
+    readConf.splitCount,
     splitSize)
 
   /**

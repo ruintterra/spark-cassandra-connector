@@ -258,7 +258,7 @@ case class AsyncStatementWriter[T](
   val keyspaceName: String = tableDef.keyspaceName
   val tableName: String = tableDef.tableName
 
-  lazy val queryExecutor = new QueryExecutor(session, writeConf.parallelismLevel, None, None)
+  lazy val queryExecutor = new QueryExecutor(session, writeConf.parallelismLevel, successHandler, failureHandler)
 
   def batchRoutingKey(session: CqlSession)(bs: RichBoundStatementWrapper): Any = {
     def missingMetadataException = new Supplier[IllegalArgumentException] {
