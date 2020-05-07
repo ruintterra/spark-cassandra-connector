@@ -15,13 +15,13 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
   val testTable = "testTable"
 
   it should "create a table with a partition key" in {
-    createDefaultKs
+    createDefaultKs()
     spark.sql(s"CREATE TABLE $defaultKs.$testTable (key Int, value STRING) PARTITIONED BY (key)")
     getTable(defaultKs, testTable).getPartitionKey.get(0).getName.asInternal() should be ("key")
   }
 
   it should "create a table with a partition key and clustering key" in {
-    createDefaultKs
+    createDefaultKs()
     spark.sql(s"CREATE TABLE $defaultKs.$testTable (key Int, value STRING) PARTITIONED BY (key) TBLPROPERTIES (clustering_key='value.asc')")
     val table = getTable(defaultKs, testTable)
     table.getPartitionKey.get(0).getName.asInternal() should be ("key")
@@ -29,7 +29,7 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
   }
 
   it should "create a table with options" in {
-    createDefaultKs
+    createDefaultKs()
 
     val DefaultTimeToLiveOption = "default_time_to_live" -> "33"
     val CompactionOption = "compaction" -> Map(
@@ -61,7 +61,7 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
   }
 
   it should "create a table with multiple partition keys and clustering keys" in {
-    createDefaultKs
+    createDefaultKs()
     spark.sql(
       s"""CREATE TABLE $defaultKs.$testTable (
          |key_1 Int, key_2 Int, key_3 Int,
@@ -77,7 +77,7 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
   }
 
   it should "throw a sensible error when trying to create a table without a partition key" in {
-    createDefaultKs
+    createDefaultKs()
     val exception = intercept[CassandraCatalogException] {
       spark.sql(
         s"""CREATE TABLE $defaultKs.$testTable (
@@ -90,7 +90,7 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
   }
 
   it should "throw an error if you try to partition on a transformed column" in {
-    createDefaultKs
+    createDefaultKs()
     val exception = intercept[UnsupportedOperationException] {
       spark.sql(
         s"""CREATE TABLE $defaultKs.$testTable (
@@ -104,7 +104,7 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
   }
 
   it should "throw a sensible error if you try to set a clustering column or partition key to a non existent column" in {
-    createDefaultKs
+    createDefaultKs()
     val exception_1 = intercept[CassandraCatalogException]{
       spark.sql(
         s"""CREATE TABLE $defaultKs.$testTable
@@ -125,7 +125,7 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
   }
 
   it should "throw an error on a bad clustering column annotation" in {
-    createDefaultKs
+    createDefaultKs()
     val exception = intercept[CassandraCatalogException] {
       spark.sql(
         s"""CREATE TABLE $defaultKs.$testTable (
@@ -150,7 +150,7 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
   }
 
   it should "throw a table already exists exception if the table already exists" in {
-    createDefaultKs
+    createDefaultKs()
     spark.sql(s"CREATE TABLE $defaultKs.$testTable (key Int, value STRING) PARTITIONED BY (key)")
     intercept[TableAlreadyExistsException] {
       spark.sql(s"CREATE TABLE $defaultKs.$testTable (key Int, value STRING) PARTITIONED BY (key)")
@@ -180,7 +180,7 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
   }
 
   it should "describe a table" in {
-    createDefaultKs
+    createDefaultKs()
     spark.sql(
       s"""CREATE TABLE $defaultKs.$testTable (
          |key_1 Int, key_2 Int, key_3 Int,
@@ -206,7 +206,7 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
   }
 
   it should "describe table properties" in {
-    createDefaultKs
+    createDefaultKs()
     spark.sql(
       s"""CREATE TABLE $defaultKs.$testTable (
          |key_1 Int, key_2 Int, key_3 Int,
@@ -222,7 +222,7 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
   }
 
   it should "alter table properties" in {
-    createDefaultKs
+    createDefaultKs()
     spark.sql(
       s"""CREATE TABLE $defaultKs.$testTable (
          |key_1 Int, key_2 Int, key_3 Int,
@@ -243,7 +243,7 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
   }
 
   it should "alter map table properties" in {
-    createDefaultKs
+    createDefaultKs()
     spark.sql(
       s"""CREATE TABLE $defaultKs.$testTable (
          |key_1 Int, key_2 Int, key_3 Int,
@@ -269,7 +269,7 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
   }
 
   it should "alter add columns" in {
-    createDefaultKs
+    createDefaultKs()
     spark.sql(
       s"""CREATE TABLE $defaultKs.$testTable (
          |key_1 Int, key_2 Int, key_3 Int,
@@ -288,7 +288,7 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
   }
 
   it should "alter remove columns" in {
-    createDefaultKs
+    createDefaultKs()
     spark.sql(
       s"""CREATE TABLE $defaultKs.$testTable (
          |key_1 Int, key_2 Int, key_3 Int,
@@ -307,7 +307,7 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
   }
 
   it should "throw exceptions when removing illegal columns" in {
-    createDefaultKs
+    createDefaultKs()
     spark.sql(
       s"""CREATE TABLE $defaultKs.$testTable (
          |key_1 Int, key_2 Int, key_3 Int,

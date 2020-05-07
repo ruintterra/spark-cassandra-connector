@@ -7,9 +7,11 @@ import com.datastax.spark.connector.cql.CassandraConnector
 import com.datastax.spark.connector.util._
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.connector.catalog.{SupportsRead, Table, TableCapability}
+import org.apache.spark.sql.connector.catalog
+import org.apache.spark.sql.connector.catalog.{SupportsRead, SupportsWrite, Table, TableCapability}
 import org.apache.spark.sql.connector.expressions.{Expressions, Transform}
 import org.apache.spark.sql.connector.read.ScanBuilder
+import org.apache.spark.sql.connector.write.WriteBuilder
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 
@@ -23,7 +25,8 @@ case class CassandraTable(
   metadata: TableMetadata)
 
   extends Table
-  with SupportsRead {
+  with SupportsRead
+  with SupportsWrite {
 
   override def name(): String = metadata.getName.asInternal()
 
@@ -46,11 +49,19 @@ case class CassandraTable(
       ).asJava
   }
 
-  override def capabilities(): util.Set[TableCapability] = Set(TableCapability.BATCH_READ).asJava
+  override def capabilities(): util.Set[TableCapability] = Set(
+    TableCapability.BATCH_READ,
+    TableCapability.BATCH_WRITE,
+    TableCapability.STREAMING_WRITE).asJava
 
   override def newScanBuilder(options: CaseInsensitiveStringMap): ScanBuilder = {
     val tableDef = tableFromCassandra(connector, metadata.getKeyspace.asInternal(), name())
     CassandraScanBuilder(session, catalogConf, tableDef, catalogName, options)
+  }
+
+  override def newWriteBuilder(options: CaseInsensitiveStringMap): WriteBuilder = {
+    val tableDef = tableFromCassandra(connector, metadata.getKeyspace.asInternal(), name())
+    CassandraWriteBuilder(session, catalogConf, tableDef, catalogName, options)
   }
 }
 

@@ -26,7 +26,7 @@ class CassandraCatalogTableReadSpec extends CassandraCatalogSpecBase {
   }
 
   it should "read from an empty table" in {
-    createDefaultKs
+    createDefaultKs()
     spark.sql(s"CREATE TABLE $defaultKs.$testTable (key Int, value STRING) PARTITIONED BY (key)")
     spark.sql(s"SELECT * FROM $defaultKs.$testTable").collect() shouldBe empty
   }

@@ -37,9 +37,9 @@ class CassandraCatalogSpecBase
       .getTable(fromInternal(table)).get
   }
 
-  def createDefaultKs() = {
+  def createDefaultKs(rf: Int = 5) = {
     dropKeyspace(defaultKs)
-    spark.sql(s"CREATE DATABASE IF NOT EXISTS $defaultKs WITH DBPROPERTIES (class='SimpleStrategy',replication_factor='5')")
+    spark.sql(s"CREATE DATABASE IF NOT EXISTS $defaultKs WITH DBPROPERTIES (class='SimpleStrategy',replication_factor='$rf')")
     waitForKeyspaceToExist(defaultKs, true)
   }
 

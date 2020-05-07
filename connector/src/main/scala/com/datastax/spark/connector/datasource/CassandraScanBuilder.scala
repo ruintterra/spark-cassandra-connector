@@ -3,8 +3,6 @@ package com.datastax.spark.connector.datasource
 import java.net.InetAddress
 import java.util.UUID
 
-import com.datastax.oss.driver.api.core.CqlIdentifier
-import com.datastax.oss.driver.api.core.CqlIdentifier.fromInternal
 import com.datastax.spark.connector.{ColumnRef, TTL, WriteTime}
 import com.datastax.spark.connector.cql.{CassandraConnector, TableDef}
 import com.datastax.spark.connector.datasource.CassandraSourceUtil.consolidateConfs
@@ -18,7 +16,6 @@ import org.apache.spark.sql.cassandra.CassandraSourceRelation.{AdditionalCassand
 import org.apache.spark.sql.cassandra.{AnalyzedPredicates, Auto, BasicCassandraPredicatePushDown, CassandraPredicateRules, CassandraSQLRow, CassandraSourceRelation, DataTypeConverter, DsePredicateRules, DseSearchOptimizationSetting, InClausePredicateRules, Off, On, SolrConstants, SolrPredicateRules}
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.{SparkSession, sources}
-import org.apache.spark.sql.catalyst.expressions.AttributeReference
 import org.apache.spark.sql.connector.read.partitioning.{ClusteredDistribution, Distribution, Partitioning}
 import org.apache.spark.sql.connector.read.{Batch, InputPartition, PartitionReaderFactory, Scan, ScanBuilder, SupportsPushDownFilters, SupportsPushDownRequiredColumns, SupportsReportPartitioning}
 import org.apache.spark.sql.sources.Filter
@@ -43,7 +40,6 @@ case class CassandraScanBuilder (
   val connectorConf = consolidateConfs(catalogConf, options.asCaseSensitiveMap().asScala.toMap, catalogName, tableDef.keyspaceName)
   val connector = CassandraConnector(connectorConf)
   val readConf = ReadConf.fromSparkConf(connectorConf)
-  val writeConf = WriteConf.fromSparkConf(connectorConf)
 
   var filtersForCassandra = Array.empty[Filter]
   var selectedColumns: IndexedSeq[ColumnRef] = tableDef.columns.map(_.ref)
