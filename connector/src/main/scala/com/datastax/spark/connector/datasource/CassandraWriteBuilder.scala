@@ -1,21 +1,19 @@
 package com.datastax.spark.connector.datasource
 
-import com.datastax.spark.connector.ColumnRef
+import com.datastax.oss.driver.api.querybuilder.QueryBuilder
 import com.datastax.spark.connector.cql.{CassandraConnector, TableDef}
 import com.datastax.spark.connector.datasource.CassandraSourceUtil.consolidateConfs
-import com.datastax.spark.connector.rdd.ReadConf
 import com.datastax.spark.connector.writer.{TTLOption, TimestampOption, WriteConf}
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.cassandra.CassandraSourceRelation.{TTLParam, WriteTimeParam}
 import org.apache.spark.sql.connector.write.streaming.{StreamingDataWriterFactory, StreamingWrite}
-import org.apache.spark.sql.connector.write.{BatchWrite, DataWriterFactory, PhysicalWriteInfo, SupportsTruncate, WriteBuilder, WriterCommitMessage}
-import org.apache.spark.sql.sources.Filter
+import org.apache.spark.sql.connector.write._
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 
-import scala.util.Try
 import scala.collection.JavaConverters._
+import scala.util.Try
 
 case class CassandraWriteBuilder(
   session: SparkSession,
@@ -24,7 +22,7 @@ case class CassandraWriteBuilder(
   catalogName: String,
   options: CaseInsensitiveStringMap,
   inputSchema: Option[StructType] = None)
-extends WriteBuilder {
+extends WriteBuilder with SupportsTruncate {
 
   val connectorConf = consolidateConfs(
     catalogConf,
@@ -47,6 +45,16 @@ extends WriteBuilder {
   override def buildForBatch(): BatchWrite = getWrite()
   override def buildForStreaming(): StreamingWrite = getWrite()
 
+  /**
+    * With Cassandra we cannot actually do this before commit since we are writing constantly,
+    * our best option is to truncate now. Since we have no notion of rollbacks this is probably
+    * the best we can do.
+    * */
+  override def truncate(): WriteBuilder = {
+    connector.withSessionDo(session =>
+      session.execute(QueryBuilder.truncate(tableDef.keyspaceName, tableDef.name).asCql()))
+      this
+  }
 }
 
 case class CassandraBulkWrite(

@@ -2,16 +2,15 @@ package com.datastax.spark.connector.datasource
 
 import java.util.OptionalLong
 
-import com.datastax.spark.connector.{RowCountRef, SomeColumns}
+import com.datastax.spark.connector.RowCountRef
 import com.datastax.spark.connector.cql.{CassandraConnector, TableDef}
 import com.datastax.spark.connector.datasource.ScanHelper.CqlQueryParts
+import com.datastax.spark.connector.rdd.ReadConf
 import com.datastax.spark.connector.rdd.partitioner.dht.{Token, TokenFactory}
 import com.datastax.spark.connector.rdd.partitioner.{CassandraPartition, DataSizeEstimates}
-import com.datastax.spark.connector.rdd.{CassandraTableScanRDD, ReadConf}
 import com.datastax.spark.connector.util.Logging
-import org.apache.spark.sql.cassandra.SolrConstants
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.connector.read.{InputPartition, PartitionReader, PartitionReaderFactory, Statistics, SupportsReportStatistics}
+import org.apache.spark.sql.connector.read._
 import org.apache.spark.sql.types.{LongType, StructField, StructType}
 
 case class CassandraScanPartitionReaderFactory(
