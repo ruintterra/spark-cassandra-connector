@@ -7,7 +7,6 @@ import com.datastax.spark.connector.cql.CassandraConnector
 import com.datastax.spark.connector.util._
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.connector.catalog
 import org.apache.spark.sql.connector.catalog.{SupportsRead, SupportsWrite, Table, TableCapability}
 import org.apache.spark.sql.connector.expressions.{Expressions, Transform}
 import org.apache.spark.sql.connector.read.ScanBuilder
@@ -25,10 +24,8 @@ case class CassandraTable(
   metadata: TableMetadata)
 
   extends Table
-  with SupportsRead
-  with SupportsWrite {
-
-  override def name(): String = metadata.getName.asInternal()
+    with SupportsRead
+    with SupportsWrite {
 
   override def schema(): StructType = CassandraSourceUtil.toStructType(metadata)
 
@@ -41,11 +38,11 @@ case class CassandraTable(
 
   override def properties(): util.Map[String, String] = {
     val clusteringKey = metadata.getClusteringColumns().asScala
-      .map{case (col, ord) => s"${col.getName.asInternal}.$ord"}
+      .map { case (col, ord) => s"${col.getName.asInternal}.$ord" }
       .mkString("[", ",", "]")
     (
       Map("clustering_key" -> clusteringKey)
-        ++ metadata.getOptions.asScala.map{case (key, value) => key.asInternal() -> value.toString}
+        ++ metadata.getOptions.asScala.map { case (key, value) => key.asInternal() -> value.toString }
       ).asJava
   }
 
@@ -59,6 +56,8 @@ case class CassandraTable(
     val tableDef = tableFromCassandra(connector, metadata.getKeyspace.asInternal(), name())
     CassandraScanBuilder(session, catalogConf, tableDef, catalogName, options)
   }
+
+  override def name(): String = metadata.getName.asInternal()
 
   override def newWriteBuilder(options: CaseInsensitiveStringMap): WriteBuilder = {
     val tableDef = tableFromCassandra(connector, metadata.getKeyspace.asInternal(), name())

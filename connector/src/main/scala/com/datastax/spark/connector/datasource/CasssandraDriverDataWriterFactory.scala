@@ -1,11 +1,11 @@
 package com.datastax.spark.connector.datasource
 
-import com.datastax.spark.connector.{ColumnName, SomeColumns}
 import com.datastax.spark.connector.cql.{CassandraConnector, TableDef}
 import com.datastax.spark.connector.writer.{TableWriter, WriteConf}
+import com.datastax.spark.connector.{ColumnName, SomeColumns}
 import org.apache.spark.sql.catalyst.InternalRow
-import org.apache.spark.sql.connector.write.{DataWriter, DataWriterFactory, WriterCommitMessage}
 import org.apache.spark.sql.connector.write.streaming.StreamingDataWriterFactory
+import org.apache.spark.sql.connector.write.{DataWriter, DataWriterFactory, WriterCommitMessage}
 import org.apache.spark.sql.types.StructType
 
 case class CassandraDriverDataWriterFactory(
@@ -14,13 +14,12 @@ case class CassandraDriverDataWriterFactory(
   inputSchema: StructType,
   writeConf: WriteConf)
   extends DataWriterFactory
-    with StreamingDataWriterFactory
- {
-   def getWriter = CassandraDriverDataWriter(connector, tableDef, inputSchema, writeConf)
+    with StreamingDataWriterFactory {
+  override def createWriter(partitionId: Int, taskId: Long): DataWriter[InternalRow] = getWriter
 
-   override def createWriter(partitionId: Int, taskId: Long): DataWriter[InternalRow] = getWriter
+  def getWriter = CassandraDriverDataWriter(connector, tableDef, inputSchema, writeConf)
 
-   override def createWriter(partitionId: Int, taskId: Long, epochId: Long): DataWriter[InternalRow] = getWriter
+  override def createWriter(partitionId: Int, taskId: Long, epochId: Long): DataWriter[InternalRow] = getWriter
 }
 
 /*

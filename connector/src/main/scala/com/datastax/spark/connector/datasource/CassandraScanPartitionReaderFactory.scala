@@ -45,49 +45,34 @@ case class CassandraScanPartitionReaderFactory(
 }
 
 
-
 abstract class CassandraPartitionReaderBase
   extends PartitionReader[InternalRow]
     with SupportsReportStatistics
-    with Logging{
+    with Logging {
 
   val connector: CassandraConnector
   val tableDef: TableDef
   val schema: StructType
   val readConf: ReadConf
   val queryParts: CqlQueryParts
-  val partition: CassandraPartition[Any, _<: Token[Any]]
+  val partition: CassandraPartition[Any, _ <: Token[Any]]
 
   val tokenRanges = partition.tokenRanges
-
-  def columnNames = queryParts.selectedColumnRefs.map(_.selectedAs).toIndexedSeq
-  def rowReader = new UnsafeRowReaderFactory(schema).rowReader(tableDef, queryParts.selectedColumnRefs)
-  def scanner = connector.connectionFactory.getScanner(readConf, connector.conf, columnNames)
-
   /*
   Iterator flatMap trick flattens the iterator-of-iterator structure into a single iterator.
   flatMap on iterator is lazy, therefore a query for the next token range is executed not earlier
   than all of the rows returned by the previous query have been consumed.
   */
   val rowIterator = getIterator()
-
-  protected def getIterator(): Iterator[InternalRow]= {
-    tokenRanges.iterator.flatMap{ range =>
-      val scanResult = ScanHelper.fetchTokenRange(scanner, tableDef,  queryParts, range, readConf.consistencyLevel, readConf.fetchSizeInRows)
-      val meta = scanResult.metadata
-      scanResult.rows.map(rowReader.read(_, meta))
-    }
-  }
-
   var lastRow: InternalRow = InternalRow()
 
   override def next(): Boolean = {
-   if (rowIterator.hasNext) {
-       lastRow = rowIterator.next()
-     true
-   } else {
-     false
-   }
+    if (rowIterator.hasNext) {
+      lastRow = rowIterator.next()
+      true
+    } else {
+      false
+    }
   }
 
   override def get(): InternalRow = lastRow
@@ -96,11 +81,15 @@ abstract class CassandraPartitionReaderBase
     scanner.close()
   }
 
+  def scanner = connector.connectionFactory.getScanner(readConf, connector.conf, columnNames)
+
+  def columnNames = queryParts.selectedColumnRefs.map(_.selectedAs).toIndexedSeq
+
   //Currently Does not take into account TODO filters or pruning
   override def estimateStatistics(): Statistics = new Statistics {
     //We call the types from the void
-    type V = t forSome { type t }
-    type T = t forSome { type t <: Token[V] }
+    type V = t forSome {type t}
+    type T = t forSome {type t <: Token[V]}
 
     override def sizeInBytes(): OptionalLong = {
       implicit val tokenFactory = TokenFactory.forSystemLocalPartitioner(connector)
@@ -113,17 +102,27 @@ abstract class CassandraPartitionReaderBase
   }
 
   override def readSchema(): StructType = schema
+
+  protected def getIterator(): Iterator[InternalRow] = {
+    tokenRanges.iterator.flatMap { range =>
+      val scanResult = ScanHelper.fetchTokenRange(scanner, tableDef, queryParts, range, readConf.consistencyLevel, readConf.fetchSizeInRows)
+      val meta = scanResult.metadata
+      scanResult.rows.map(rowReader.read(_, meta))
+    }
+  }
+
+  def rowReader = new UnsafeRowReaderFactory(schema).rowReader(tableDef, queryParts.selectedColumnRefs)
 }
 
 /**
   * Physical Scan Reader of Cassandra
   *
-  * @param connector Connection to Cassandra to use for Reading
-  * @param tableDef Table Definition Information for the table being scanned
-  * @param schema Output Schema to be produced from this read
-  * @param readConf Options relating to how the read should be performed
+  * @param connector  Connection to Cassandra to use for Reading
+  * @param tableDef   Table Definition Information for the table being scanned
+  * @param schema     Output Schema to be produced from this read
+  * @param readConf   Options relating to how the read should be performed
   * @param queryParts Additional query elements to add to the TokenRange Scan query
-  * @param partition The Token Range to Query with Localization Info
+  * @param partition  The Token Range to Query with Localization Info
   */
 case class CassandraScanPartitionReader(
   connector: CassandraConnector,
@@ -150,7 +149,7 @@ case class CassandraCountPartitionReader(
     .rowReader(tableDef, queryParts.selectedColumnRefs)
 
   override val rowIterator: Iterator[InternalRow] = {
-    val count = getIterator().foldLeft(0L){ case (count, result) => count + result.getLong(0)}
+    val count = getIterator().foldLeft(0L) { case (count, result) => count + result.getLong(0) }
 
     //Casting issue here for extremely large C* partitions, but it's un likely that a Count Request will succeed if the
     //Split has more than Int.Max Entries anyway.

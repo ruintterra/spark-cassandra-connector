@@ -2,14 +2,12 @@ package com.datastax.spark.connector.datasource
 
 import java.util.Locale
 
-import com.datastax.oss.driver.api.core.{CqlIdentifier, ProtocolVersion}
+import com.datastax.oss.driver.api.core.ProtocolVersion
 import com.datastax.oss.driver.api.core.`type`.{DataType, DataTypes, ListType, MapType, SetType, TupleType, UserDefinedType}
 import com.datastax.oss.driver.api.core.`type`.DataTypes._
 import com.datastax.dse.driver.api.core.`type`.DseDataTypes._
 import com.datastax.oss.driver.api.core.metadata.schema.{ColumnMetadata, TableMetadata}
 import com.datastax.spark.connector.util.{ConfigParameter, DeprecatedConfigParameter, Logging}
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.module.scala.DefaultScalaModule
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.types.{DataType => CatalystType}
 import org.apache.spark.sql.types.{BooleanType => SparkSqlBooleanType, DataType => SparkSqlDataType, DateType => SparkSqlDateType, DecimalType => SparkSqlDecimalType, DoubleType => SparkSqlDoubleType, FloatType => SparkSqlFloatType, MapType => SparkSqlMapType, TimestampType => SparkSqlTimestampType, UserDefinedType => SparkSqlUserDefinedType, _}
@@ -19,6 +17,35 @@ import scala.util.Try
 
 object CassandraSourceUtil extends Logging {
 
+
+  val BracketList = "\\[(.*)\\]".r
+  val BracketMap = "\\{(.*)\\}".r
+  private val primitiveTypeMap = Map[DataType, CatalystType](
+    ASCII -> StringType,
+    BIGINT -> LongType,
+    BLOB -> BinaryType,
+    BOOLEAN -> SparkSqlBooleanType,
+    COUNTER -> LongType,
+    DATE -> SparkSqlDateType,
+    DATE_RANGE -> StringType,
+    DECIMAL -> SparkSqlDecimalType(38, 18),
+    DOUBLE -> SparkSqlDoubleType,
+    DURATION -> StringType,
+    FLOAT -> SparkSqlFloatType,
+    INET -> StringType,
+    INT -> IntegerType,
+    LINE_STRING -> StringType,
+    POLYGON -> StringType,
+    POINT -> StringType,
+    SMALLINT -> ShortType,
+    TEXT -> StringType,
+    TINYINT -> ByteType,
+    TIME -> LongType,
+    TIMESTAMP -> SparkSqlTimestampType,
+    TIMEUUID -> StringType,
+    UUID -> StringType,
+    VARINT -> SparkSqlDecimalType(38, 0)
+  )
 
   /**
     * Consolidate Cassandra conf settings in the order of
@@ -31,7 +58,7 @@ object CassandraSourceUtil extends Logging {
     sqlConf: Map[String, String],
     cluster: String = "default",
     keyspace: String = "",
-    tableConf: Map[String, String] = Map.empty) : SparkConf = {
+    tableConf: Map[String, String] = Map.empty): SparkConf = {
 
     //Default settings
     val conf = sparkConf.clone()
@@ -84,39 +111,12 @@ object CassandraSourceUtil extends Logging {
     }
   }
 
-  private val primitiveTypeMap = Map[DataType, CatalystType](
-    ASCII -> StringType,
-    BIGINT -> LongType,
-    BLOB -> BinaryType,
-    BOOLEAN -> SparkSqlBooleanType,
-    COUNTER -> LongType,
-    DATE -> SparkSqlDateType,
-    DATE_RANGE -> StringType,
-    DECIMAL -> SparkSqlDecimalType(38, 18),
-    DOUBLE -> SparkSqlDoubleType,
-    DURATION -> StringType,
-    FLOAT -> SparkSqlFloatType,
-    INET -> StringType,
-    INT -> IntegerType,
-    LINE_STRING -> StringType,
-    POLYGON -> StringType,
-    POINT -> StringType,
-    SMALLINT -> ShortType,
-    TEXT -> StringType,
-    TINYINT -> ByteType,
-    TIME -> LongType,
-    TIMESTAMP -> SparkSqlTimestampType,
-    TIMEUUID -> StringType,
-    UUID -> StringType,
-    VARINT -> SparkSqlDecimalType(38, 0)
-  )
-
   /** Convert Cassandra data type to Catalyst data type */
   def catalystDataType(cassandraType: DataType, nullable: Boolean): SparkSqlDataType = {
 
     def fromUdt(udt: UserDefinedType): StructType = {
       val fieldsAndType = udt.getFieldNames.asScala.zip(udt.getFieldTypes.asScala)
-      val structFields = fieldsAndType.map{ case (fieldName, dataType) =>
+      val structFields = fieldsAndType.map { case (fieldName, dataType) =>
         StructField(
           fieldName.asInternal(),
           catalystDataType(dataType, nullable = true),
@@ -136,15 +136,15 @@ object CassandraSourceUtil extends Logging {
     }
 
     cassandraType match {
-      case s: SetType                    => ArrayType(catalystDataType(s.getElementType, nullable), nullable)
-      case l: ListType                   => ArrayType(catalystDataType(l.getElementType, nullable), nullable)
-      case m: MapType                    => SparkSqlMapType(catalystDataType(m.getKeyType, nullable), catalystDataType(m.getValueType, nullable), nullable)
-      case udt: UserDefinedType          => fromUdt(udt)
-      case t: TupleType                  => fromTuple(t)
-      case VARINT                        =>
+      case s: SetType => ArrayType(catalystDataType(s.getElementType, nullable), nullable)
+      case l: ListType => ArrayType(catalystDataType(l.getElementType, nullable), nullable)
+      case m: MapType => SparkSqlMapType(catalystDataType(m.getKeyType, nullable), catalystDataType(m.getValueType, nullable), nullable)
+      case udt: UserDefinedType => fromUdt(udt)
+      case t: TupleType => fromTuple(t)
+      case VARINT =>
         logWarning("VarIntType is mapped to catalystTypes.DecimalType with unlimited values.")
         primitiveCatalystDataType(cassandraType)
-      case _                             => primitiveCatalystDataType(cassandraType)
+      case _ => primitiveCatalystDataType(cassandraType)
     }
   }
 
@@ -164,10 +164,9 @@ object CassandraSourceUtil extends Logging {
   def toStructType(metadata: TableMetadata): StructType = {
     val partitionKeys = metadata.getPartitionKey.asScala.toSet
     val allColumns = metadata.getColumns.asScala.map(_._2).toSeq
-    StructType(allColumns.map( column => toStructField(column, partitionKeys.contains(column))))
+    StructType(allColumns.map(column => toStructField(column, partitionKeys.contains(column))))
   }
 
-  val BracketList = "\\[(.*)\\]".r
   def parseList(str: String): List[String] = {
     val arr = str match {
       case BracketList(innerStr) => innerStr.split(",")
@@ -175,13 +174,17 @@ object CassandraSourceUtil extends Logging {
     arr.map(_.replaceAll("\\s", "")).toList
   }
 
-  val BracketMap = "\\{(.*)\\}".r
+  def parseProperty(str: String): Any = {
+    Try(parseMap(str).asJava) orElse
+      Try(str) get
+  }
+
   def parseMap(str: String): Map[String, String] = {
     def handleInner(innerStr: String) = {
       innerStr.split(",")
         .map(_.replaceAll("\\s", ""))
         .map(_.split("="))
-        .map( kv =>
+        .map(kv =>
           if (kv.length != 2) {
             throw new IllegalArgumentException(s"Cannot form Map from $str")
           } else {
@@ -198,22 +201,17 @@ object CassandraSourceUtil extends Logging {
     m.toMap
   }
 
-  def parseProperty(str: String) : Any = {
-    Try(parseMap(str).asJava) orElse
-    Try(str) get
-  }
-
-  def mapToString(m: Map[String, String]): String= {
-    m.map{ case (k, v) => (s"$k=$v")}.mkString("{",",","}")
-
-  }
-
   def optionsListToString(options: List[(String, Any)]): String = {
-    options.map{
+    options.map {
       case (k: String, v: String) => s"$k='$v'"
       case (k: String, innerM: Map[String, String]) => s"$k='${mapToString(innerM)}'"
       case (_, _) => throw new IllegalArgumentException(s"Unable to parse $options")
-    } .mkString(",")
+    }.mkString(",")
+
+  }
+
+  def mapToString(m: Map[String, String]): String = {
+    m.map { case (k, v) => (s"$k=$v") }.mkString("{", ",", "}")
 
   }
 }

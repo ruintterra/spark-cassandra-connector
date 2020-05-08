@@ -19,7 +19,7 @@ class UnsafeRowReaderFactory(schema: StructType) extends RowReaderFactory[Unsafe
 }
 
 class UnsafeRowReader(schema: StructType)
-  extends RowReader[UnsafeRow]{
+  extends RowReader[UnsafeRow] {
 
   @transient lazy val projection = UnsafeProjection.create(schema)
   val converter = CatalystTypeConverters.createToCatalystConverter(schema)

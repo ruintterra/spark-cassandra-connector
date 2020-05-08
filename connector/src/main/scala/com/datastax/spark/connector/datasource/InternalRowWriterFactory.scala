@@ -13,30 +13,29 @@ class InternalRowWriterFactory(schema: StructType) extends RowWriterFactory[Inte
     * @param selectedColumns columns selected by the user; the user might wish to write only a
     *                        subset of columns */
   override def rowWriter(table: TableDef, selectedColumns: IndexedSeq[ColumnRef]):
-    RowWriter[InternalRow] = new InternalRowWriter(schema, table, selectedColumns)
+  RowWriter[InternalRow] = new InternalRowWriter(schema, table, selectedColumns)
 
 }
 
 /**
   * A [[RowWriter]] that can write SparkSQL `InternalRow", schema defines the
   * structure of InternalRows that will be processed by this writer.
-  * */
+  **/
 class InternalRowWriter(
- val schema: StructType,
- val table: TableDef,
- val selectedColumns: IndexedSeq[ColumnRef]) extends RowWriter[InternalRow] {
+  val schema: StructType,
+  val table: TableDef,
+  val selectedColumns: IndexedSeq[ColumnRef]) extends RowWriter[InternalRow] {
 
   override val columnNames = selectedColumns.map(_.columnName)
+  val typeForSchemaIndex = schema.map(_.dataType).zipWithIndex.map(x => (x._2, x._1)).toMap
   private val columns = columnNames.map(table.columnByName)
   private val columnTypes = columns.map(_.columnType)
-  val typeForSchemaIndex = schema.map(_.dataType).zipWithIndex.map( x => (x._2, x._1)).toMap
-
   private val schemaRequestedIndexes = {
     val indexedSchema = schema.map(_.name).zipWithIndex.toMap
-    selectedColumns.map( column => indexedSchema(column.selectedAs))
+    selectedColumns.map(column => indexedSchema(column.selectedAs))
   }
 
-  private val dataTypes =  schemaRequestedIndexes.map(index => typeForSchemaIndex(index))
+  private val dataTypes = schemaRequestedIndexes.map(index => typeForSchemaIndex(index))
 
   /*
   Todo Is this Needed? With Unsafe Rows we had to be more careful about internal representations but
@@ -45,7 +44,7 @@ class InternalRowWriter(
   private val convertersToScala = dataTypes.map(CatalystTypeConverters.createToScalaConverter)
 
   private val convertersToCassandra = columns.map(_.columnType.converterToCassandra)
-  private val converters = convertersToScala.zip(convertersToCassandra).map ( converterPair =>
+  private val converters = convertersToScala.zip(convertersToCassandra).map(converterPair =>
     converterPair._1.andThen(converterPair._2.convert(_))
   )
   private val size = selectedColumns.size
@@ -55,7 +54,7 @@ class InternalRowWriter(
   override def readColumnValues(row: InternalRow, buffer: Array[Any]) = {
     var i = 0;
     // Using while loop to avoid allocations in for each
-    while (i < size){
+    while (i < size) {
       val colValue = row.get(i, dataTypes(i))
       buffer(i) = converters(i).apply(colValue)
       i += 1
