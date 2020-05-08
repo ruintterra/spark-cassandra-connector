@@ -1,10 +1,7 @@
 package com.datastax.spark.connector.datasource
 
-import org.apache.spark.sql.catalyst.analysis.{NamespaceAlreadyExistsException, NoSuchNamespaceException}
+import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.execution.exchange.Exchange
-import org.scalatest.concurrent.Eventually._
-
-import scala.collection.JavaConverters._
 
 class CassandraCatalogTableReadSpec extends CassandraCatalogSpecBase {
 
@@ -53,6 +50,18 @@ class CassandraCatalogTableReadSpec extends CassandraCatalogSpecBase {
       .queryExecution
       .executedPlan
       .collectFirst{ case exchange: Exchange => exchange } shouldBe defined
+  }
+
+  it should "handle count pushdowns" in {
+    setupBasicTable()
+    val request = spark.sql(s"""SELECT COUNT(*) from $defaultKs.$testTable""")
+    val reader = request
+      .queryExecution
+      .executedPlan
+      .collectFirst { case batchScanExec: BatchScanExec=> batchScanExec.readerFactory.createReader(EmptyInputPartition)}
+
+    reader.get.isInstanceOf[CassandraCountPartitionReader] should be (true)
+    request.collect()(0).get(0) should be (101)
   }
 
 }

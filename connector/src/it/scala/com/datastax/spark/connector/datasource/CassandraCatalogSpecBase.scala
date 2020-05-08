@@ -5,6 +5,7 @@ import com.datastax.oss.driver.api.core.metadata.schema.TableMetadata
 import com.datastax.spark.connector.SparkCassandraITFlatSpecBase
 import com.datastax.spark.connector.cluster.DefaultCluster
 import com.datastax.spark.connector.cql.CassandraConnector
+import com.datastax.spark.connector.rdd.partitioner.CassandraPartition
 import org.apache.spark.sql.internal.SQLConf
 import org.scalatest.concurrent.Eventually._
 import org.scalatest.time.SpanSugar._
@@ -18,6 +19,8 @@ class CassandraCatalogSpecBase
   override def conn: CassandraConnector = CassandraConnector(sparkConf)
 
   val defaultKs = "catalogtestks"
+
+  val EmptyInputPartition = CassandraPartition(0, Array.empty, Iterable.empty, 0)
 
   def getMetadata() = {
     conn.withSessionDo(_.getMetadata)

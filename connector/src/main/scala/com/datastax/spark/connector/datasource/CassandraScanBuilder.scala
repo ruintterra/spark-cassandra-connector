@@ -3,12 +3,11 @@ package com.datastax.spark.connector.datasource
 import java.net.InetAddress
 import java.util.UUID
 
-import com.datastax.spark.connector.{ColumnRef, TTL, WriteTime}
+import com.datastax.spark.connector.{ColumnName, ColumnRef, RowCountRef, TTL, WriteTime}
 import com.datastax.spark.connector.cql.{CassandraConnector, TableDef}
 import com.datastax.spark.connector.datasource.CassandraSourceUtil.consolidateConfs
 import com.datastax.spark.connector.datasource.ScanHelper.CqlQueryParts
-import com.datastax.spark.connector.writer.{TTLOption, TimestampOption, WriteConf}
-import com.datastax.spark.connector.rdd.{CassandraTableScanRDD, CqlWhereClause, ReadConf}
+import com.datastax.spark.connector.rdd.{CqlWhereClause, ReadConf}
 import com.datastax.spark.connector.types.{InetType, UUIDType, VarIntType}
 import com.datastax.spark.connector.util.Quote.quote
 import com.datastax.spark.connector.util.{Logging, ReflectionUtil}
@@ -87,9 +86,6 @@ case class CassandraScanBuilder (
     }
   }
 
-  override def build(): Scan = {
-      CassandraScan(session, connector, tableDef, filtersForCassandra, selectedColumns, readConf, catalogConf)
-  }
 
   override def pushFilters(filters: Array[Filter]): Array[Filter] = {
     logDebug(s"Input Predicates: [${filters.mkString(", ")}]")
@@ -127,18 +123,33 @@ case class CassandraScanBuilder (
   override def pruneColumns(requiredSchema: StructType): Unit = {
     selectedColumns = requiredSchema.fieldNames.map(tableDef.columnByName).map(_.ref)
   }
-}
 
-case class CassandraScan(
-  session: SparkSession,
-  connector: CassandraConnector,
-  tableDef: TableDef,
-  pushedFilters: Array[Filter],
-  selectedColumns: IndexedSeq[ColumnRef],
-  readConf: ReadConf,
-  catalogConf: SparkConf) extends Scan
-    with Batch
-    with SupportsReportPartitioning {
+  val tableIsSolrIndexed =
+    tableDef
+      .indexes
+      .exists(index => index.className.contains(SolrConstants.DseSolrIndexClassName))
+
+  def getQueryParts(): CqlQueryParts = {
+    //Get all required ColumnRefs, MetaDataRefs should be picked out of the ReadColumnsMap
+    val requiredCassandraColumns = selectedColumns.map(columnName =>
+      metadataReadColumnsMap.getOrElse(columnName.columnName, columnName)
+    )
+
+    val solrCountEnabled = searchOptimization().enabled && tableIsSolrIndexed && cqlWhereClause.predicates.isEmpty
+    val solrCountWhere = CqlWhereClause(Seq(s"${SolrConstants.SolrQuery} = '*:*'"), Seq.empty)
+
+    if (requiredCassandraColumns.isEmpty){
+      //Count Pushdown
+      CqlQueryParts(IndexedSeq(RowCountRef),
+        if (solrCountEnabled) cqlWhereClause and solrCountWhere else cqlWhereClause,
+      None,
+      None)
+
+    } else {
+      //No Count Pushdown
+      CqlQueryParts(requiredCassandraColumns, cqlWhereClause, None, None)
+    }
+  }
 
   //Metadata Read Fields
   // ignore case
@@ -183,7 +194,7 @@ case class CassandraScan(
       }
 
 
-  private val metadataReadColumnsMap =
+  private def metadataReadColumnsMap =
     (ttlFields.map(field => (field._2.name, TTL(field._1, Some(field._2.name)))) ++
       writeTimeFields.map(field => (field._2.name, WriteTime(field._1, Some(field._2.name))))).toMap
 
@@ -227,23 +238,49 @@ case class CassandraScan(
   }
 
   /** Construct where clause from pushdown filters */
-  val cqlWhereClause = pushedFilters.foldLeft(CqlWhereClause.empty) { case (where, filter) => {
-    val (predicate, values) = filterToCqlAndValue(filter)
-    val newClause = CqlWhereClause(Seq(predicate), values)
-    where and newClause
+  def cqlWhereClause = pushedFilters.foldLeft(CqlWhereClause.empty) { case (where, filter) => {
+      val (predicate, values) = filterToCqlAndValue(filter)
+      val newClause = CqlWhereClause(Seq(predicate), values)
+      where and newClause
+    }
   }
+
+  override def build(): Scan = {
+
+    val queryParts = getQueryParts()
+    val fields: Seq[StructField] = queryParts.selectedColumnRefs.collect(
+      {
+        case ColumnName(name, _) => tableDef.columnByName(name)
+      }).map(DataTypeConverter.toStructField) ++
+      writeTimeFields.map(_._2) ++
+      ttlFields.map(_._2)
+
+    val readStruct = StructType(fields)
+
+    CassandraScan(session, connector, tableDef, getQueryParts(), readStruct ,readConf, catalogConf)
   }
+
+}
+
+case class CassandraScan(
+  session: SparkSession,
+  connector: CassandraConnector,
+  tableDef: TableDef,
+  cqlQueryParts: CqlQueryParts,
+  readSchema: StructType,
+  readConf: ReadConf,
+  catalogConf: SparkConf) extends Scan
+    with Batch
+    with SupportsReportPartitioning {
+
+
 
   override def toBatch: Batch = this
-
-  override def readSchema(): StructType = StructType(tableDef.columns.map(DataTypeConverter.toStructField)
-    ++ writeTimeFields.map(_._2)
-    ++ ttlFields.map(_._2))
 
   val partitionGenerator = ScanHelper.getPartitionGenerator(
     connector,
     tableDef,
-    cqlWhereClause,
+    cqlQueryParts.whereClause,
     session.sparkContext.defaultParallelism * 2 + 1,
     readConf.splitCount,
     readConf.splitSizeInMB * 1024L * 1024L)
@@ -255,15 +292,8 @@ case class CassandraScan(
   }
 
   override def createReaderFactory(): PartitionReaderFactory = {
-    //Get all required ColumnRefs, MetaDataRefs should be picked out of the ReadColumnsMap
-    val requiredCassandraColumns = selectedColumns.map(columnName =>
-      metadataReadColumnsMap.getOrElse(columnName.columnName, columnName)
-    )
-
-    val queryParts = CqlQueryParts(requiredCassandraColumns, cqlWhereClause, None, None)
-    CassandraScanPartitionReaderFactory(connector, tableDef, readSchema(), readConf, queryParts)
+    CassandraScanPartitionReaderFactory(connector, tableDef, readSchema, readConf, cqlQueryParts)
   }
-
 
   val clusteredKeys = tableDef.partitionKey.map(_.columnName).toArray
 
@@ -282,6 +312,13 @@ case class CassandraScan(
         case _ => false
       }
     }
+  }
+
+  override def description(): String = {
+    s"""Cassandra Scan ${tableDef.keyspaceName}.${tableDef.tableName} |
+       |Server Side Filters ${cqlQueryParts.whereClause} |
+       | Columns ${cqlQueryParts.selectedColumnRefs.mkString("[", ",", "]")}""".stripMargin
+
   }
 }
 

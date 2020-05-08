@@ -52,7 +52,8 @@ case class CassandraTable(
   override def capabilities(): util.Set[TableCapability] = Set(
     TableCapability.BATCH_READ,
     TableCapability.BATCH_WRITE,
-    TableCapability.STREAMING_WRITE).asJava
+    TableCapability.STREAMING_WRITE,
+    TableCapability.TRUNCATE).asJava
 
   override def newScanBuilder(options: CaseInsensitiveStringMap): ScanBuilder = {
     val tableDef = tableFromCassandra(connector, metadata.getKeyspace.asInternal(), name())
