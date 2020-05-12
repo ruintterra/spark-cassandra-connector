@@ -49,7 +49,7 @@ class CassandraCoGroupedRDD[T](
       case None => {
         val metadata: Metadata = connector.withSessionDo(_.getMetadata)
         val suggestions = NameTools.getSuggestions(metadata, keyspaceName, tableName)
-        val errorMessage = NameTools.getErrorString(keyspaceName, tableName, suggestions)
+        val errorMessage = NameTools.getErrorString(keyspaceName, Some(tableName), suggestions)
         throw new IOException(errorMessage)
       }
     }

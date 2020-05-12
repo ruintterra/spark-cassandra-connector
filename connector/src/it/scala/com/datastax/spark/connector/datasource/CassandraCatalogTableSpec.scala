@@ -2,7 +2,8 @@ package com.datastax.spark.connector.datasource
 
 import com.datastax.oss.driver.api.core.CqlIdentifier.fromInternal
 import org.apache.spark.SparkException
-import org.apache.spark.sql.catalyst.analysis.{NoSuchNamespaceException, TableAlreadyExistsException}
+import org.apache.spark.sql.AnalysisException
+import org.apache.spark.sql.catalyst.analysis.{NoSuchNamespaceException, NoSuchTableException, TableAlreadyExistsException}
 
 import scala.collection.JavaConverters._
 

@@ -5,11 +5,14 @@ import java.util.{Locale, Optional}
 
 import com.datastax.oss.driver.api.core.CqlIdentifier
 import com.datastax.oss.driver.api.core.CqlIdentifier.fromInternal
+import com.datastax.oss.driver.api.core.metadata.Metadata
 import com.datastax.oss.driver.api.core.metadata.schema.{ClusteringOrder, TableMetadata}
 import com.datastax.oss.driver.api.querybuilder.SchemaBuilder
 import com.datastax.oss.driver.api.querybuilder.schema._
 import com.datastax.spark.connector.cql.CassandraConnector
 import com.datastax.spark.connector.datasource.CassandraSourceUtil._
+import com.datastax.spark.connector.util.NameTools
+import javax.naming.NamingSecurityException
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.analysis.{NamespaceAlreadyExistsException, NoSuchNamespaceException, NoSuchTableException, TableAlreadyExistsException}
 import org.apache.spark.sql.connector.catalog.NamespaceChange.{RemoveProperty, SetProperty}
@@ -36,9 +39,10 @@ class CassandraCatalog extends CatalogPlugin
   with TableCatalog
   with SupportsNamespaces {
 
+  import CassandraCatalog._
+
   lazy val sparkSession = SparkSession.active
 
-  val OnlyOneNamespace = "Cassandra only supports a keyspace name of a single level (no periods in keyspace name)"
   val ReplicationClass = "class"
   val ReplicationFactor = "replication_factor"
   val DurableWrites = "durable_writes"
@@ -47,12 +51,6 @@ class CassandraCatalog extends CatalogPlugin
   val IgnoredReplicationOptions = Seq(ReplicationClass, DurableWrites)
   val PartitionKey = "partition_key"
   val ClusteringKey = "clustering_key"
-
-  //Add asScala to JavaOptions to make working with the driver a little smoother
-  implicit class ScalaOptionConverter[T](javaOpt: Optional[T]) {
-    def asScala: Option[T] =
-      if (javaOpt.isPresent) Some(javaOpt.get) else None
-  }
 
   val NonCassandraProperties = Seq(PartitionKey, ClusteringKey) ++ TableCatalog.RESERVED_PROPERTIES.asScala
   var connector: CassandraConnector = _
@@ -64,7 +62,7 @@ class CassandraCatalog extends CatalogPlugin
 
   override def initialize(name: String, options: CaseInsensitiveStringMap): Unit = {
     catalogOptions = options
-    val sparkConf = Try(SparkEnv.get.conf).getOrElse(new SparkConf())
+    val sparkConf = sparkSession.sparkContext.getConf
     connectorConf = consolidateConfs(sparkConf, options.asCaseSensitiveMap().asScala.toMap, name)
     connector = CassandraConnector(connectorConf)
     catalogName = name
@@ -75,7 +73,7 @@ class CassandraCatalog extends CatalogPlugin
   override def name(): String = s"Catalog $catalogName For Cassandra Cluster At $nameIdentifier " //TODO add identifier here
 
   override def listNamespaces(): Array[Array[String]] = {
-    getMetadata
+    getMetadata(connector)
       .getKeyspaces
       .asScala
       .map { case (name, _) => Array(name.asInternal()) }
@@ -88,41 +86,16 @@ class CassandraCatalog extends CatalogPlugin
     * throw a NoSuchNamespaceException
     */
   override def listNamespaces(namespace: Array[String]): Array[Array[String]] = {
-    getKeyspaceMeta(namespace) // Thorows no such namespace if namespace is not found
+    getKeyspaceMeta(connector, namespace) // Thorows no such namespace if namespace is not found
     Array.empty[Array[String]]
   }
 
-  //Namespace Support
-  private def getKeyspaceMeta(namespace: Array[String]) = {
-    checkNamespace(namespace)
-    getMetadata
-      .getKeyspace(fromInternal(namespace.head))
-      .asScala
-      .getOrElse(throw nameSpaceMissing(namespace))
-  }
 
-  /**
-    * The Catalog API usually deals with non-existence of tables or keyspaces by
-    * throwing exceptions, so this helper should be added whenever a namespace
-    * is used to quickly bail out if the namespace is not compatible with Cassandra
-    */
-  def checkNamespace(namespace: Array[String]): Unit = {
-    if (namespace.length != 1) throw new NoSuchNamespaceException(s"$OnlyOneNamespace : $namespace")
-  }
-
-  def nameSpaceMissing(namespace: Array[String]): NoSuchNamespaceException = {
-    new NoSuchNamespaceException(namespace)
-    //TODO ADD Naming Suggestions
-  }
-
-  private def getMetadata = {
-    connector.withSessionDo(_.getMetadata)
-  }
 
   override def createNamespace(namespace: Array[String], metadata: java.util.Map[String, String]): Unit = {
     val ksMeta = metadata.asScala
     checkNamespace(namespace)
-    if (getMetadata.getKeyspace(fromInternal(namespace.head)).asScala.isDefined) throw new NamespaceAlreadyExistsException(s"${namespace.head} already exists")
+    if (getMetadata(connector).getKeyspace(fromInternal(namespace.head)).asScala.isDefined) throw new NamespaceAlreadyExistsException(s"${namespace.head} already exists")
     connector.withSessionDo { session =>
       val createStmt = SchemaBuilder.createKeyspace(namespace.head)
       val replicationClass = ksMeta.getOrElse(ReplicationClass, throw new CassandraCatalogException(s"Creating a keyspace requires a $ReplicationClass DBOption for the replication strategy class"))
@@ -175,7 +148,7 @@ class CassandraCatalog extends CatalogPlugin
   }
 
   override def loadNamespaceMetadata(namespace: Array[String]): java.util.Map[String, String] = {
-    val ksMetadata = getKeyspaceMeta(namespace)
+    val ksMetadata = getKeyspaceMeta(connector, namespace)
 
     (Map[String, String](
       DurableWrites -> ksMetadata.isDurableWrites.toString,
@@ -184,22 +157,22 @@ class CassandraCatalog extends CatalogPlugin
 
   override def dropNamespace(namespace: Array[String]): Boolean = {
     checkNamespace(namespace)
-    val keyspace = getMetadata.getKeyspace(fromInternal(namespace.head)).asScala
-      .getOrElse(throw nameSpaceMissing(namespace))
+    val keyspace = getMetadata(connector).getKeyspace(fromInternal(namespace.head)).asScala
+      .getOrElse(throw nameSpaceMissing(getMetadata(connector), namespace))
     val dropResult = connector.withSessionDo(session =>
       session.execute(SchemaBuilder.dropKeyspace(keyspace.getName).asCql()))
     dropResult.wasApplied()
   }
 
   override def listTables(namespace: Array[String]): Array[Identifier] = {
-    getKeyspaceMeta(namespace)
+    getKeyspaceMeta(connector, namespace)
       .getTables.asScala
       .map { case (tableName, _) => Identifier.of(namespace, tableName.asInternal()) }
       .toArray
   }
 
   override def loadTable(ident: Identifier): Table = {
-    val tableMeta = getTableMetaData(ident)
+    val tableMeta = getTableMetaData(connector, ident)
     CassandraTable(sparkSession, connectorConf, connector, catalogName, tableMeta)
   }
 
@@ -220,7 +193,7 @@ class CassandraCatalog extends CatalogPlugin
     */
   override def createTable(ident: Identifier, schema: StructType, partitions: Array[Transform], properties: util.Map[String, String]): Table = {
     val tableProps = properties.asScala
-    Try(getTableMetaData(ident)) match {
+    Try(getTableMetaData(connector, ident)) match {
       case Success(_) => throw new TableAlreadyExistsException(ident)
       case Failure(noSuchTableException: NoSuchTableException) => //We can create this table
       case Failure(e) => throw e
@@ -333,7 +306,7 @@ class CassandraCatalog extends CatalogPlugin
     */
   override def alterTable(ident: Identifier, changes: TableChange*): Table = {
     val protocolVersion = connector.withSessionDo(_.getContext.getProtocolVersion)
-    val tableMetadata = getTableMetaData(ident)
+    val tableMetadata = getTableMetaData(connector, ident)
     val keyspace = tableMetadata.getKeyspace
     val table = tableMetadata.getName
 
@@ -382,28 +355,72 @@ class CassandraCatalog extends CatalogPlugin
   }
 
   override def dropTable(ident: Identifier): Boolean = {
-    val tableMeta = getTableMetaData(ident)
+    val tableMeta = getTableMetaData(connector, ident)
     connector.withSessionDo(_.execute(SchemaBuilder.dropTable(tableMeta.getKeyspace, tableMeta.getName).asCql())).wasApplied()
-  }
-
-  //Table Support
-  def getTableMetaData(ident: Identifier) = {
-    val namespace = ident.namespace
-    checkNamespace(namespace)
-    val tableMeta = getMetadata
-      .getKeyspace(fromInternal(namespace.head)).asScala
-      .getOrElse(throw nameSpaceMissing(namespace))
-      .getTable(fromInternal(ident.name)).asScala
-      .getOrElse(throw tableMissing(namespace, ident.name()))
-    tableMeta
-  }
-
-  def tableMissing(namespace: Array[String], name: String): Throwable = {
-    new NoSuchTableException(namespace.head, name)
-    //Todo Add naming suggestions
   }
 
   override def renameTable(oldIdent: Identifier, newIdent: Identifier): Unit = {
     throw new UnsupportedOperationException("Cassandra does not support renaming tables")
   }
+}
+
+object CassandraCatalog {
+
+  //Add asScala to JavaOptions to make working with the driver a little smoother
+  implicit class ScalaOptionConverter[T](javaOpt: Optional[T]) {
+    def asScala: Option[T] =
+      if (javaOpt.isPresent) Some(javaOpt.get) else None
+  }
+
+
+  val OnlyOneNamespace = "Cassandra only supports a keyspace name of a single level (no periods in keyspace name)"
+
+  //Table Support
+  def getTableMetaData(connector: CassandraConnector, ident: Identifier) = {
+    val namespace = ident.namespace
+    checkNamespace(namespace)
+    val tableMeta = getMetadata(connector)
+      .getKeyspace(fromInternal(namespace.head)).asScala
+      .getOrElse(throw nameSpaceMissing(getMetadata(connector), namespace))
+      .getTable(fromInternal(ident.name)).asScala
+      .getOrElse(throw tableMissing(getMetadata(connector), namespace, ident.name()))
+    tableMeta
+  }
+
+  //Namespace Support
+  private def getKeyspaceMeta(connector: CassandraConnector, namespace: Array[String]) = {
+    checkNamespace(namespace)
+    getMetadata(connector)
+      .getKeyspace(fromInternal(namespace.head))
+      .asScala
+      .getOrElse(throw nameSpaceMissing(getMetadata(connector), namespace))
+  }
+
+  /**
+    * The Catalog API usually deals with non-existence of tables or keyspaces by
+    * throwing exceptions, so this helper should be added whenever a namespace
+    * is used to quickly bail out if the namespace is not compatible with Cassandra
+    */
+  def checkNamespace(namespace: Array[String]): Unit = {
+    if (namespace.length != 1) throw new NoSuchNamespaceException(s"$OnlyOneNamespace : $namespace")
+  }
+
+  //Currently these exceptions are not always propagated to the user so Suggestions will not appear for all executions
+  def nameSpaceMissing(metadata: Metadata, namespace: Array[String]): NoSuchNamespaceException = {
+    val suggestions = NameTools.getSuggestions(metadata, namespace.head)
+    val error = NameTools.getErrorString(namespace.head, None, suggestions)
+    new NoSuchNamespaceException(error)
+  }
+
+  private def getMetadata(connector: CassandraConnector) = {
+    connector.withSessionDo(_.getMetadata)
+  }
+
+  //Currently these exceptions are not always propagated to the user so Suggestions will not appear for all executions
+  def tableMissing(metadata: Metadata, namespace: Array[String], name: String): Throwable = {
+    val suggestions = NameTools.getSuggestions(metadata, namespace.head, name)
+    val error = NameTools.getErrorString(namespace.head, Some(name), suggestions)
+    new NoSuchTableException(error)
+  }
+
 }
