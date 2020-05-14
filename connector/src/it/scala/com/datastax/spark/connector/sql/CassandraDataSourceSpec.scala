@@ -84,42 +84,27 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with DefaultC
       )
     }
 
-    createTempTable(ks, "test1", "tmpTable")
-    createTempTable(ks, "df_test2", "tmpDf_test2")
-  }
-
-  override def afterClass {
-    sparkSession.sql("DROP VIEW tmpTable")
-    sparkSession.sql("DROP VIEW tmpDf_test2")
+    setupCassandraCatalog
   }
 
   private def withConfig(params: (String, Any)*)(testFun: => Unit): Unit = {
-    val originalValues = params.map { case (k, _) => (k, sc.getLocalProperty(k)) }
-    params.foreach { case (k, v) => sc.setLocalProperty(k, v.toString) }
+    val runtimeConf = spark.conf.getAll
+    params.foreach { case (k, v) => spark.conf.set(k, v.toString) }
     try {
       testFun
     } finally {
-      originalValues.foreach { case (k, v) => sc.setLocalProperty(k, v) }
+      params.map(_._1).map(spark.conf.unset)
+      runtimeConf.foreach{
+        case (k, v) if spark.conf.isModifiable(k) =>  spark.conf.set(k, v)
+        case _ =>
+      }
     }
   }
 
   private def withConfig(key: String, value: Any)(testFun: => Unit): Unit = withConfig((key, value)){testFun}
 
-  def createTempTable(keyspace: String, table: String, tmpTable: String) = {
-    sparkSession.sql(
-      s"""
-        |CREATE TEMPORARY TABLE $tmpTable
-        |USING org.apache.spark.sql.cassandra
-        |OPTIONS (
-        | table "$table",
-        | keyspace "$keyspace",
-        | pushdown "$pushDown",
-        | confirm.truncate "true")
-      """.stripMargin.replaceAll("\n", " "))
-  }
-
   def cassandraTable(tableRef: TableRef) : DataFrame = {
-    sparkSession.baseRelationToDataFrame(CassandraSourceRelation(tableRef, sparkSession.sqlContext, new CassandraSourceOptions(), None))
+    spark.sql(s"SELECT * From ${tableRef.keyspace}.${tableRef.table}")
   }
 
   "Cassandra Source Relation" should "allow to select all rows" in {
@@ -128,82 +113,58 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with DefaultC
     result.head should have length 1
   }
 
-  it should "allow to register as a temp table" in {
-    cassandraTable(TableRef("test1", ks)).createOrReplaceTempView("test1")
-    val temp = sparkSession.sql("SELECT * from test1").select("b").collect()
-    temp should have length 8
-    temp.head should have length 1
-    sparkSession.sql("DROP VIEW test1")
-  }
-
   it should "allow to insert data into a cassandra table" in {
-    createTempTable(ks, "test_insert", "insertTable")
-    sparkSession.sql("SELECT * FROM insertTable").collect() should have length 0
-
-    sparkSession.sql("INSERT OVERWRITE TABLE insertTable SELECT a, b FROM tmpTable")
-    sparkSession.sql("SELECT * FROM insertTable").collect() should have length 1
-    sparkSession.sql("DROP VIEW insertTable")
+    spark.sql(s"SELECT * FROM $ks.test_insert").collect() should have length 0
+    spark.sql(s"INSERT OVERWRITE TABLE $ks.test_insert SELECT a, b FROM $ks.test1")
+    spark.sql(s"SELECT * FROM $ks.test_insert").collect() should have length 1
   }
 
   it should "allow to save data to a cassandra table" in {
-    sparkSession.sql("SELECT a, b from tmpTable")
+    spark.sql(s"SELECT a, b from $ks.test1")
       .write
       .format("org.apache.spark.sql.cassandra")
-      .mode(ErrorIfExists)
+      .mode(Append)
       .options(Map("table" -> "test_insert1", "keyspace" -> ks))
       .save()
 
     cassandraTable(TableRef("test_insert1", ks)).collect() should have length 1
-
-    val message = intercept[UnsupportedOperationException] {
-      sparkSession.sql("SELECT a, b from tmpTable")
-        .write
-        .format("org.apache.spark.sql.cassandra")
-        .mode(ErrorIfExists)
-        .options(Map("table" -> "test_insert1", "keyspace" -> ks))
-        .save()
-    }.getMessage
-
-    assert(
-      message.contains("SaveMode is set to ErrorIfExists and Table"),
-      "We should complain if attempting to write to a table with data if save mode is ErrorIfExists.'")
   }
 
   it should "allow to overwrite a cassandra table" in {
-    sparkSession.sql("SELECT a, b from tmpTable")
+    spark.sql(s"SELECT a, b from $ks.test1")
       .write
       .format("org.apache.spark.sql.cassandra")
       .mode(Overwrite)
       .options(Map("table" -> "test_insert2", "keyspace" -> ks, "confirm.truncate" -> "true"))
       .save()
-    createTempTable(ks, "test_insert2", "insertTable2")
-    sparkSession.sql("SELECT * FROM insertTable2").collect() should have length 1
-    sparkSession.sql("DROP VIEW insertTable2")
+    spark.sql(s"SELECT * FROM $ks.test_insert2").collect() should have length 1
   }
 
   // This test is just to make sure at runtime the implicit for RDD[Row] can be found
   it should "implicitly generate a rowWriter from it's RDD form" in {
-    sparkSession.sql("SELECT a, b from tmpTable").rdd.saveToCassandra(ks, "test_rowwriter")
+    spark.sql(s"SELECT a, b from $ks.test1").rdd.saveToCassandra(ks, "test_rowwriter")
   }
 
   it should "allow to filter a table" in {
-    sparkSession.sql("SELECT a, b FROM tmpTable WHERE a=1 and b=2 and c=1 and e=1").collect() should have length 2
+    spark.sql(s"SELECT a, b FROM $ks.test1 WHERE a=1 and b=2 and c=1 and e=1").collect() should have length 2
   }
 
   it should "allow to filter a table with a function for a column alias" in {
-    sparkSession.sql("SELECT * FROM (SELECT (a + b + c) AS x, d FROM tmpTable) " +
-      "AS tmpTable1 WHERE x= 3").collect() should have length 4
+    spark.sql(
+      s"""SELECT * FROM (SELECT (a + b + c) AS x, d FROM $ks.test1)
+         |WHERE x= 3""".stripMargin).collect() should have length 4
   }
 
   it should "allow to filter a table with alias" in {
-    sparkSession.sql("SELECT * FROM (SELECT a AS a1, b AS b1, c AS c1, d AS d1, e AS e1" +
-      " FROM tmpTable) AS tmpTable1 WHERE  a1=1 and b1=2 and c1=1 and e1=1 ").collect() should have length 2
+    spark.sql(
+      s"""SELECT * FROM (SELECT a AS a1, b AS b1, c AS c1, d AS d1, e AS e1 FROM $ks.test1)
+         |WHERE  a1=1 and b1=2 and c1=1 and e1=1 """.stripMargin).collect() should have length 2
   }
 
   it should "be able to save DF with reversed order columns to a Cassandra table" in {
     val test_df = Test(1400820884, "http://foobar", "Firefox", 123242)
 
-    val ss = sparkSession
+    val ss = spark
     import ss.implicits._
     val df = sc.parallelize(Seq(test_df)).toDF
 
@@ -218,7 +179,7 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with DefaultC
   it should "be able to save DF with partial columns to a Cassandra table" in {
     val test_df = TestPartialColumns(1400820884, "Firefox", 123242)
 
-    val ss = sparkSession
+    val ss = spark
     import ss.implicits._
     val df = sc.parallelize(Seq(test_df)).toDF
 
@@ -232,7 +193,7 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with DefaultC
 
   it should "throws exception during overwriting a table when confirm.truncate is false" in {
     val test_df = TestPartialColumns(1400820884, "Firefox", 123242)
-    val ss = sparkSession
+    val ss = spark
     import ss.implicits._
 
     val df = sc.parallelize(Seq(test_df)).toDF
@@ -255,7 +216,7 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with DefaultC
       CassandraSourceRelation.AdditionalCassandraPushDownRulesParam.name,
       "com.datastax.spark.connector.sql.PushdownNothing") {
 
-    val df = sparkSession
+    val df = spark
       .read
       .format("org.apache.spark.sql.cassandra")
       .options(Map("keyspace" -> ks, "table" -> "test1"))
@@ -269,30 +230,21 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with DefaultC
       CassandraSourceRelation.AdditionalCassandraPushDownRulesParam.name,
       "com.datastax.spark.connector.sql.PushdownNothing,com.datastax.spark.connector.sql.PushdownEverything,com.datastax.spark.connector.sql.PushdownEqualsOnly") {
 
-    val df = sparkSession
+    val df = spark
       .read
       .format("org.apache.spark.sql.cassandra")
-      .options(Map("keyspace" -> ks, "table" -> "test1"))
+      .options(Map(
+        "keyspace" -> ks,
+        "table" -> "test1",
+        CassandraSourceRelation.AdditionalCassandraPushDownRulesParam.name -> "com.datastax.spark.connector.sql.PushdownNothing,com.datastax.spark.connector.sql.PushdownEverything,com.datastax.spark.connector.sql.PushdownEqualsOnly"))
       .load()
       .filter("a=1 and b=2 and c=1 and e=1")
       .select("a", "b", "c", "e")
 
-    @scala.annotation.tailrec
-    def getSourceRDD(rdd: RDD[_]): RDD[_] = {
-      if (rdd.dependencies.nonEmpty)
-        getSourceRDD(rdd.dependencies.head.rdd)
-      else
-        rdd
-    }
+    val cassandraScan = getCassandraScan(df.queryExecution.executedPlan)
 
-    val cassandraTableScanRDD = getSourceRDD(df.queryExecution
-      .executedPlan
-      .collectLeaves().head //Get Source
-      .asInstanceOf[RowDataSourceScanExec]
-      .rdd).asInstanceOf[CassandraTableScanRDD[_]]
-
-    val pushedWhere = cassandraTableScanRDD.where
-    val predicates = pushedWhere.predicates.head.split("AND").map(_.trim)
+    val pushedWhere = cassandraScan.cqlQueryParts.whereClause
+    val predicates = pushedWhere.predicates.map(_.trim)
     val values = pushedWhere.values
     val pushedPredicates = predicates.zip(values)
     pushedPredicates should contain allOf(
@@ -306,7 +258,7 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with DefaultC
       CassandraSourceRelation.AdditionalCassandraPushDownRulesParam.name,
       "com.datastax.spark.connector.sql.PushdownUsesConf") {
 
-    val df = sparkSession
+    val df = spark
       .read
       .format("org.apache.spark.sql.cassandra")
       .options(Map("keyspace" -> ks, "table" -> "test1", PushdownUsesConf.testKey -> "Don't Remove"))
@@ -314,7 +266,7 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with DefaultC
 
     df.queryExecution.executedPlan // Will throw an exception if local key is not set
 
-    val df2 = sparkSession
+    val df2 = spark
       .read
       .format("org.apache.spark.sql.cassandra")
       .options(Map("keyspace" -> ks, "table" -> "test1"))
@@ -346,36 +298,36 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with DefaultC
     }
 
   it should "convert to joinWithCassandra for 'IN' clause spanned on simple partition key " in joinConversionLowThreshold {
-    val df = sparkSession.sql(s"SELECT * FROM tmpDf_test2 WHERE customer_id IN (1,2)")
+    val df = spark.sql(s"SELECT * FROM tmpDf_test2 WHERE customer_id IN (1,2)")
     assertOnCassandraJoinRddPresence(df.rdd)
   }
 
   it should "convert to joinWithCassandra for 'IN' clause for composite partition key " in joinConversionLowThreshold {
-    val df = sparkSession.sql(s"SELECT a,b FROM tmpTable WHERE a IN (1,2) AND b IN (1,2) AND c IN (1,2)")
+    val df = spark.sql(s"SELECT a,b FROM $ks.test1 WHERE a IN (1,2) AND b IN (1,2) AND c IN (1,2)")
     assertOnCassandraJoinRddPresence(df.rdd)
     df.collect() should have size 8
   }
 
   it should "convert to joinWithCassandra for 'IN' clause for some columns of composite partition key " in joinConversionLowThreshold {
-    val df = sparkSession.sql(s"SELECT * FROM tmpTable WHERE a IN (1,2) AND b = 2 AND c IN (1,2,3)")
+    val df = spark.sql(s"SELECT * FROM $ks.test1 WHERE a IN (1,2) AND b = 2 AND c IN (1,2,3)")
     assertOnCassandraJoinRddPresence(df.rdd)
     df.collect() should have size 4
   }
 
   it should "convert to joinWithCassandra for 'IN' clause for partition key and some clustering columns" in joinConversionLowThreshold {
-    val df = sparkSession.sql(s"SELECT * FROM tmpTable WHERE a IN (1,2) AND b IN (1,2) AND c IN (1,2) AND d IN (1) AND e IN (1)")
+    val df = spark.sql(s"SELECT * FROM $ks.test1 WHERE a IN (1,2) AND b IN (1,2) AND c IN (1,2) AND d IN (1) AND e IN (1)")
     assertOnCassandraJoinRddPresence(df.rdd)
     df.collect() should have size 2
   }
 
   it should "convert to joinWithCassandra for 'IN' clause for partition key and all clustering columns" in joinConversionLowThreshold {
-    val df = sparkSession.sql(s"SELECT * FROM tmpTable WHERE a IN (1,2) AND b IN (1,2) AND c IN (1,2) AND d IN (1) AND e IN (1) AND f IN (1,3)")
+    val df = spark.sql(s"SELECT * FROM $ks.test1 WHERE a IN (1,2) AND b IN (1,2) AND c IN (1,2) AND d IN (1) AND e IN (1) AND f IN (1,3)")
     assertOnCassandraJoinRddPresence(df.rdd)
     df.collect() should have size 1
   }
 
   it should "convert to joinWithCassandra for 'IN' clause for partition and some clustering columns and range" in joinConversionLowThreshold {
-    val df = sparkSession.sql(s"SELECT * FROM tmpTable WHERE a IN (1,2) AND b IN (1,2) AND c IN (1,2) AND d IN (1) AND e IN (1) AND f < 2")
+    val df = spark.sql(s"SELECT * FROM $ks.test1 WHERE a IN (1,2) AND b IN (1,2) AND c IN (1,2) AND d IN (1) AND e IN (1) AND f < 2")
     assertOnCassandraJoinRddPresence(df.rdd)
     val rows = df.collect()
     rows should have size 1
@@ -383,19 +335,19 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with DefaultC
   }
 
   it should "convert to joinWithCassandra for 'IN' clause for partition columns and respect required columns" in joinConversionLowThreshold {
-    val df = sparkSession.sql(s"SELECT a,b,c FROM tmpTable WHERE a IN (1,2) AND b IN (1,2) AND c IN (1,2)")
+    val df = spark.sql(s"SELECT a,b,c FROM $ks.test1 WHERE a IN (1,2) AND b IN (1,2) AND c IN (1,2)")
     assertOnCassandraJoinRddPresence(df.rdd)
     df.collect().head.size should be(3)
   }
 
   it should "convert to joinWithCassandra for 'IN' clause for partition columns and retrieve all columns" in joinConversionLowThreshold {
-    val df = sparkSession.sql(s"SELECT * FROM tmpTable WHERE a IN (1,2) AND b IN (1,2) AND c IN (1,2)")
+    val df = spark.sql(s"SELECT * FROM $ks.test1 WHERE a IN (1,2) AND b IN (1,2) AND c IN (1,2)")
     assertOnCassandraJoinRddPresence(df.rdd)
     df.collect().head.size should be(8)
   }
 
   it should "convert to joinWithCassandra for 'IN' clause for partition key and clustering columns regardless the predicate order" in joinConversionLowThreshold {
-    val df = sparkSession.sql(s"SELECT * FROM tmpTable WHERE e IN (2) AND b IN (1,2) AND a IN (1,2) AND d IN (2) AND f IN (2) AND c IN (1)")
+    val df = spark.sql(s"SELECT * FROM $ks.test1 WHERE e IN (2) AND b IN (1,2) AND a IN (1,2) AND d IN (2) AND f IN (2) AND c IN (1)")
     assertOnCassandraJoinRddPresence(df.rdd)
     val rows = df.collect()
     rows should have size 1
@@ -403,7 +355,7 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with DefaultC
   }
 
   it should "convert to joinWithCassandra for 'IN' clause for partition key and clustering columns with equal predicates" in joinConversionLowThreshold {
-    val df = sparkSession.sql(s"SELECT * FROM tmpTable WHERE e = 2 AND b IN (1,2) AND a IN (1,2) AND d = 2 AND f IN (2) AND c = 1")
+    val df = spark.sql(s"SELECT * FROM $ks.test1 WHERE e = 2 AND b IN (1,2) AND a IN (1,2) AND d = 2 AND f IN (2) AND c = 1")
     assertOnCassandraJoinRddPresence(df.rdd)
     val rows = df.collect()
     rows should have size 1
@@ -411,7 +363,7 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with DefaultC
   }
 
   it should "convert to joinWithCassandra for 'IN' clause for partition columns and respect required columns order" in joinConversionLowThreshold {
-    val df = sparkSession.sql(s"SELECT b,a FROM tmpTable WHERE a IN (1) AND b IN (2) AND c IN (1,9)")
+    val df = spark.sql(s"SELECT b,a FROM $ks.test1 WHERE a IN (1) AND b IN (2) AND c IN (1,9)")
     assertOnCassandraJoinRddPresence(df.rdd)
     val rows = df.collect()
     rows should have size 4
@@ -419,7 +371,7 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with DefaultC
   }
 
   it should "convert to joinWithCassandra for 'IN' clause for partition columns and allow count" in joinConversionLowThreshold {
-    val df = sparkSession.sql(s"SELECT count(1) FROM tmpTable WHERE a IN (1) AND b IN (2) AND c IN (1,9)")
+    val df = spark.sql(s"SELECT count(1) FROM $ks.test1 WHERE a IN (1) AND b IN (2) AND c IN (1,9)")
     assertOnCassandraJoinRddPresence(df.rdd)
     val rows = df.collect()
     rows should have size 1
@@ -427,25 +379,25 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with DefaultC
   }
 
   it should "not convert to joinWithCassandra when some partition columns have no predicate" in joinConversionLowThreshold {
-    val df = sparkSession.sql(s"SELECT * FROM tmpTable WHERE a IN (1) AND b IN (2,3,4,5)")
+    val df = spark.sql(s"SELECT * FROM $ks.test1 WHERE a IN (1) AND b IN (2,3,4,5)")
     assertOnAbsenceOfCassandraJoinRdd(df.rdd)
   }
 
   it should "not convert to joinWithCassandra if 'IN' value sets cumulative size does not exceed configurable threshold" in
       withConfig(InClauseToJoinWithTableConversionThreshold.name, 9) {
-    val df = sparkSession.sql(s"SELECT * FROM tmpTable WHERE a IN (1,2) AND b IN (2,1) AND c IN (3,1)")
+    val df = spark.sql(s"SELECT * FROM $ks.test1 WHERE a IN (1,2) AND b IN (2,1) AND c IN (3,1)")
     assertOnAbsenceOfCassandraJoinRdd(df.rdd)
   }
 
   it should "not convert to joinWithCassandra for 'IN' clause if threshold is 0" in
       withConfig((InClauseToJoinWithTableConversionThreshold.name, 0)) {
-        val df = sparkSession.sql(s"SELECT * FROM tmpTable WHERE a IN (1) AND b IN (2) AND c IN (1,9)")
+        val df = spark.sql(s"SELECT * FROM $ks.test1 WHERE a IN (1) AND b IN (2) AND c IN (1,9)")
         assertOnAbsenceOfCassandraJoinRdd(df.rdd)
   }
 
   it should "keep default parallelism when converting IN clause to joinWithCassandra" in joinConversionLowThreshold {
     if (pushDown) {
-      val df = sparkSession.sql(s"SELECT * FROM tmpTable WHERE a IN (1,2) AND b IN (1,2) AND c IN (1,2)")
+      val df = spark.sql(s"SELECT * FROM $ks.test1 WHERE a IN (1,2) AND b IN (1,2) AND c IN (1,2)")
       assertOnCassandraJoinRddPresence(df.rdd)
       df.rdd.partitions.length should be (df.sparkSession.sparkContext.defaultParallelism)
     }

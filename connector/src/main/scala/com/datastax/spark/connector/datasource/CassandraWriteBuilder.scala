@@ -1,11 +1,13 @@
 package com.datastax.spark.connector.datasource
 
+import com.datastax.oss.driver.api.core.CqlIdentifier
 import com.datastax.oss.driver.api.querybuilder.QueryBuilder
 import com.datastax.spark.connector.cql.{CassandraConnector, TableDef}
 import com.datastax.spark.connector.datasource.CassandraSourceUtil.consolidateConfs
 import com.datastax.spark.connector.writer.{TTLOption, TimestampOption, WriteConf}
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.cassandra.CassandraSourceRelation
 import org.apache.spark.sql.cassandra.CassandraSourceRelation.{TTLParam, WriteTimeParam}
 import org.apache.spark.sql.connector.write._
 import org.apache.spark.sql.connector.write.streaming.{StreamingDataWriterFactory, StreamingWrite}
@@ -52,9 +54,18 @@ case class CassandraWriteBuilder(
     * the best we can do.
     **/
   override def truncate(): WriteBuilder = {
-    connector.withSessionDo(session =>
-      session.execute(QueryBuilder.truncate(tableDef.keyspaceName, tableDef.name).asCql()))
-    this
+    if (connectorConf.getOption("confirm.truncate").getOrElse("false").toBoolean) {
+      connector.withSessionDo(session =>
+        session.execute(QueryBuilder.truncate(CqlIdentifier.fromInternal(tableDef.keyspaceName), CqlIdentifier.fromInternal(tableDef.tableName)).asCql()))
+      this
+    }  else {
+      throw new UnsupportedOperationException(
+        """You are attempting to use overwrite mode which will truncate
+          |this table prior to inserting data. If you would merely like
+          |to change data already in the table use the "Append" mode.
+          |To actually truncate please pass in true value to the option
+          |"confirm.truncate" when saving. """.stripMargin)
+    }
   }
 }
 
@@ -67,11 +78,6 @@ case class CassandraBulkWrite(
   catalogConf: SparkConf)
   extends BatchWrite
     with StreamingWrite {
-
-
-  val metadataEnrichedWriteConf = writeConf.copy(
-    ttl = ttlWriteOption,
-    timestamp = timestampWriteOption)
 
   private val ttlWriteOption =
     catalogConf.getOption(TTLParam.name)
@@ -88,6 +94,10 @@ case class CassandraBulkWrite(
           .map(TimestampOption.constant)
           .getOrElse(TimestampOption.perRow(value)))
       .getOrElse(writeConf.timestamp)
+
+  val metadataEnrichedWriteConf = writeConf.copy(
+    ttl = ttlWriteOption,
+    timestamp = timestampWriteOption)
 
   override def createBatchWriterFactory(info: PhysicalWriteInfo): DataWriterFactory = getWriterFactory()
 

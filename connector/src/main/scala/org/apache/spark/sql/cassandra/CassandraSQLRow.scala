@@ -97,6 +97,7 @@ object CassandraSQLRow {
       case geom: Geometry => geom.asWellKnownText()
       case duration: CqlDuration => TypeCodecs.DURATION.format(duration)
       case javaDate: java.util.Date => java.sql.Timestamp.from(javaDate.toInstant)
+      case localDate: java.time.LocalDate => java.sql.Date.valueOf(localDate)
       case localDate: org.joda.time.LocalDate =>
         java.time.LocalDate.of(localDate.getYear,localDate.getMonthOfYear, localDate.getDayOfMonth)
           .toEpochDay.asInstanceOf[AnyRef]

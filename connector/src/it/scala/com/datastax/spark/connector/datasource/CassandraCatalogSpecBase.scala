@@ -56,4 +56,6 @@ class CassandraCatalogSpecBase
     spark.conf.set(SQLConf.DEFAULT_CATALOG.key, "cassandra")
   }
 
+
+
 }

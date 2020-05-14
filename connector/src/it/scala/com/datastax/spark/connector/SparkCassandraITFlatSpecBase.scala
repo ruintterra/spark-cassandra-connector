@@ -10,6 +10,7 @@ import com.datastax.oss.driver.api.core.cql.SimpleStatement._
 import com.datastax.oss.driver.api.core.{CqlSession, ProtocolVersion, Version}
 import com.datastax.spark.connector.cluster.ClusterProvider
 import com.datastax.spark.connector.cql.{CassandraConnector, DefaultAuthConfFactory}
+import com.datastax.spark.connector.datasource.{CassandraCatalog, CassandraScan, CassandraTable}
 import com.datastax.spark.connector.embedded.SparkTemplate
 import com.datastax.spark.connector.testkit.AbstractSpec
 import com.datastax.spark.connector.util.Logging
@@ -18,6 +19,9 @@ import org.apache.commons.lang3.StringUtils
 import org.apache.commons.lang3.exception.ExceptionUtils
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.execution.SparkPlan
+import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
+import org.apache.spark.sql.internal.SQLConf
 import org.scalatest._
 import org.scalatest.concurrent.Eventually._
 import org.scalatest.time.{Seconds, Span}
@@ -50,7 +54,7 @@ trait SparkCassandraITSpecBase
   }
   final def sparkConf = defaultConf
 
-  lazy val spark = SparkSession.builder().config(sparkConf).getOrCreate().newSession()
+  lazy val spark = SparkSession.builder().config(sparkConf).withExtensions(new CassandraSparkExtensions).getOrCreate().newSession()
   lazy val sparkSession = spark
   lazy val sc = spark.sparkContext
 
@@ -196,6 +200,17 @@ trait SparkCassandraITSpecBase
   def restoreSystemProps(): Unit = {
     sys.props ++= originalProps
     sys.props --= (sys.props.keySet -- originalProps.keySet)
+  }
+
+  def setupCassandraCatalog: Unit = {
+    sparkSession.conf.set(s"spark.sql.catalog.cassandra", classOf[CassandraCatalog].getCanonicalName)
+    sparkSession.conf.set(SQLConf.DEFAULT_CATALOG.key, "cassandra")
+  }
+
+  def getCassandraScan(plan: SparkPlan): CassandraScan = {
+    plan.collectLeaves.collectFirst{
+      case BatchScanExec(_, cassandraScan: CassandraScan) => cassandraScan
+    }.getOrElse(throw new IllegalArgumentException("No Cassandra Scan Found"))
   }
 
 }

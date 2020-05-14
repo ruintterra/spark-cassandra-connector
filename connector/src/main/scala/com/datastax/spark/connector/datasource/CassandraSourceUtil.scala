@@ -73,8 +73,8 @@ object CassandraSourceUtil extends Logging {
         sqlConf.get(prop)).flatten.headOption
       value.foreach(conf.set(prop, _))
     }
-    //Set all user properties
-    conf.setAll(tableConf -- AllSCCConfNames)
+    //Set all user properties while avoiding SCC Properties
+    conf.setAll(tableConf -- (AllSCCConfNames ++ AllSCCConfNames.map(_.toLowerCase(Locale.ROOT))))
     conf
   }
 
@@ -152,8 +152,7 @@ object CassandraSourceUtil extends Logging {
     primitiveTypeMap(cassandraType)
   }
 
-  def toStructField(column: ColumnMetadata, isPrimaryKeyColumn: Boolean): StructField = {
-    val nullable = !isPrimaryKeyColumn
+  def toStructField(column: ColumnMetadata, nullable: Boolean): StructField = {
     StructField(
       column.getName.asInternal(),
       catalystDataType(column.getType, nullable = true),
@@ -164,7 +163,13 @@ object CassandraSourceUtil extends Logging {
   def toStructType(metadata: TableMetadata): StructType = {
     val partitionKeys = metadata.getPartitionKey.asScala.toSet
     val allColumns = metadata.getColumns.asScala.map(_._2).toSeq
-    StructType(allColumns.map(column => toStructField(column, partitionKeys.contains(column))))
+    StructType(allColumns.map(column => toStructField(column, nullable = !partitionKeys.contains(column))))
+  }
+
+  def toStructTypeAllNullable(metadata: TableMetadata): StructType = {
+    val allColumns = metadata.getColumns.asScala.map(_._2).toSeq
+
+    StructType(allColumns.map(column => toStructField(column, true)))
   }
 
   def parseList(str: String): List[String] = {

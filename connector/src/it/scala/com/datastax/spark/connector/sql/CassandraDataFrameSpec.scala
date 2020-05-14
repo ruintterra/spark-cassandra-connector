@@ -12,7 +12,9 @@ import com.datastax.spark.connector.cql.{CassandraConnector, ClusteringColumn}
 import com.datastax.spark.connector.util.DriverUtil.toName
 import org.apache.spark.sql.SaveMode
 import org.apache.spark.sql.cassandra._
+import org.apache.spark.sql.catalyst.analysis.NoSuchTableException
 import org.apache.spark.sql.functions._
+import org.apache.spark.sql.types.{IntegerType, StringType, StructField, StructType}
 import org.joda.time.LocalDate
 import org.scalatest.concurrent.Eventually
 
@@ -117,6 +119,7 @@ class CassandraDataFrameSpec extends SparkCassandraITFlatSpecBase with DefaultCl
           "spark.cassandra.output.timestamp" -> "1470009600000000"
         )
       )
+      .mode("append")
       .save()
 
     val dfCopy = sparkSession
@@ -217,7 +220,7 @@ class CassandraDataFrameSpec extends SparkCassandraITFlatSpecBase with DefaultCl
   }
 
   it should " provide error out with a sensible message when a table can't be found" in {
-    val exception = intercept[IOException] {
+    val exception = intercept[NoSuchTableException] {
       val df = sparkSession
         .read
         .format("org.apache.spark.sql.cassandra")
@@ -233,7 +236,7 @@ class CassandraDataFrameSpec extends SparkCassandraITFlatSpecBase with DefaultCl
   }
 
   it should " provide useful suggestions if a table can't be found but a close match exists" in {
-    val exception = intercept[IOException] {
+    val exception = intercept[NoSuchTableException] {
       val df = sparkSession
         .read
         .format("org.apache.spark.sql.cassandra")
@@ -263,6 +266,7 @@ class CassandraDataFrameSpec extends SparkCassandraITFlatSpecBase with DefaultCl
     df.write
       .format("org.apache.spark.sql.cassandra")
       .options(Map("table" -> "tuple_test2", "keyspace" -> ks, "cluster" -> "ClusterOne"))
+      .mode("append")
       .save
 
     conn.withSessionDo { session =>
@@ -283,6 +287,7 @@ class CassandraDataFrameSpec extends SparkCassandraITFlatSpecBase with DefaultCl
     df.write
       .format("org.apache.spark.sql.cassandra")
       .options(Map("table" -> "date_test2", "keyspace" -> ks, "cluster" -> "ClusterOne"))
+      .mode("append")
       .save
 
     conn.withSessionDo { session =>

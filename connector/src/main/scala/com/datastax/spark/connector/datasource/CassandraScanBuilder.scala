@@ -13,7 +13,7 @@ import com.datastax.spark.connector.util.{Logging, ReflectionUtil}
 import com.datastax.spark.connector.{ColumnName, ColumnRef, RowCountRef, TTL, WriteTime}
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.cassandra.CassandraSourceRelation.{AdditionalCassandraPushDownRulesParam, TTLParam, WriteTimeParam}
-import org.apache.spark.sql.cassandra.{AnalyzedPredicates, Auto, BasicCassandraPredicatePushDown, CassandraPredicateRules, CassandraSourceRelation, DataTypeConverter, DsePredicateRules, DseSearchOptimizationSetting, InClausePredicateRules, Off, On, SolrConstants, SolrPredicateRules}
+import org.apache.spark.sql.cassandra.{AnalyzedPredicates, Auto, BasicCassandraPredicatePushDown, CassandraMetadataFunction, CassandraPredicateRules, CassandraSourceRelation, DataTypeConverter, DsePredicateRules, DseSearchOptimizationSetting, InClausePredicateRules, Off, On, SolrConstants, SolrPredicateRules}
 import org.apache.spark.sql.connector.read.partitioning.{ClusteredDistribution, Distribution, Partitioning}
 import org.apache.spark.sql.connector.read._
 import org.apache.spark.sql.sources.Filter
@@ -36,48 +36,34 @@ case class CassandraScanBuilder(
     with SupportsPushDownRequiredColumns
     with Logging {
 
-  val connectorConf = consolidateConfs(catalogConf, options.asCaseSensitiveMap().asScala.toMap, catalogName, tableDef.keyspaceName)
+  val connectorConf = consolidateConfs(catalogConf, session.conf.getAll, catalogName, tableDef.keyspaceName, options.asScala.toMap)
   val connector = CassandraConnector(connectorConf)
   val readConf = ReadConf.fromSparkConf(connectorConf)
   val tableIsSolrIndexed =
     tableDef
       .indexes
       .exists(index => index.className.contains(SolrConstants.DseSolrIndexClassName))
+
   //Metadata Read Fields
   // ignore case
   val regularColumnNames = tableDef.regularColumns.map(_.columnName.toLowerCase())
   val nonRegularColumnNames = (tableDef.clusteringColumns ++ tableDef.partitionKey).map(_.columnName.toLowerCase)
   val ignoreMissingMetadataColumns: Boolean = catalogConf.getBoolean(CassandraSourceRelation.IgnoreMissingMetaColumns.name,
     CassandraSourceRelation.IgnoreMissingMetaColumns.default)
-  private val writeTimeFields =
-    catalogConf
-      .getAllWithPrefix(WriteTimeParam.name + ".")
-      .filter { case (columnName: String, writeTimeName: String) => checkMetadataColumn(columnName, "writetime") }
-      .map { case (columnName: String, writeTimeName: String) =>
-        val colDef = tableDef.columnByNameIgnoreCase(columnName)
-        val colType = if (colDef.isMultiCell)
-          ArrayType(LongType) else LongType
-        (colDef.columnName, StructField(writeTimeName, colType, nullable = false))
-      }
-  private val ttlFields =
-    catalogConf
-      .getAllWithPrefix(TTLParam.name + ".")
-      .filter { case (columnName: String, writeTimeName: String) => checkMetadataColumn(columnName, "ttl") }
-      .map { case (columnName: String, ttlName: String) =>
-        val colDef = tableDef.columnByNameIgnoreCase(columnName)
-        val colType = if (colDef.isMultiCell)
-          ArrayType(IntegerType) else IntegerType
-        (colDef.columnName, StructField(ttlName, colType, nullable = true))
-      }
+
+  val pushdownEnabled = connectorConf.getOption("pushdown").getOrElse("true").toBoolean
   var filtersForCassandra = Array.empty[Filter]
   var selectedColumns: IndexedSeq[ColumnRef] = tableDef.columns.map(_.ref)
+  var readSchema: StructType = _
 
   def containsMetaDataRequests(): Unit = {
     (catalogConf.getAllWithPrefix(WriteTimeParam.name + ".") ++
       catalogConf.getAllWithPrefix(TTLParam.name + ".")).nonEmpty
   }
 
-  override def pushFilters(filters: Array[Filter]): Array[Filter] = {
+  override def pushFilters(filters: Array[Filter]): Array[Filter] = if (!pushdownEnabled) {
+    filters
+  } else {
     logDebug(s"Input Predicates: [${filters.mkString(", ")}]")
 
     val pv = connector.withSessionDo(_.getContext.getProtocolVersion)
@@ -146,8 +132,17 @@ case class CassandraScanBuilder(
            """.stripMargin)
     }
 
+
+  val TTLCapture = "TTL\\((.*)\\)".r
+  val WriteTimeCapture = "WRITETIME\\((.*)\\)".r
+
   override def pruneColumns(requiredSchema: StructType): Unit = {
-    selectedColumns = requiredSchema.fieldNames.map(tableDef.columnByName).map(_.ref)
+    selectedColumns = requiredSchema.fieldNames.collect {
+      case name@TTLCapture(column) => TTL(column, Some(name))
+      case name@WriteTimeCapture(column) => WriteTime(column, Some(name))
+      case column => tableDef.columnByName(column).ref
+    }
+    readSchema = requiredSchema
   }
 
   def checkMetadataColumn(columnName: String, function: String): Boolean = {
@@ -164,25 +159,12 @@ case class CassandraScanBuilder(
   }
 
   override def build(): Scan = {
-
-    val queryParts = getQueryParts()
-    val fields: Seq[StructField] = queryParts.selectedColumnRefs.collect(
-      {
-        case ColumnName(name, _) => tableDef.columnByName(name)
-      }).map(DataTypeConverter.toStructField) ++
-      writeTimeFields.map(_._2) ++
-      ttlFields.map(_._2)
-
-    val readStruct = StructType(fields)
-
-    CassandraScan(session, connector, tableDef, getQueryParts(), readStruct, readConf, catalogConf)
+    CassandraScan(session, connector, tableDef, getQueryParts(), readSchema, readConf, catalogConf)
   }
 
   def getQueryParts(): CqlQueryParts = {
     //Get all required ColumnRefs, MetaDataRefs should be picked out of the ReadColumnsMap
-    val requiredCassandraColumns = selectedColumns.map(columnName =>
-      metadataReadColumnsMap.getOrElse(columnName.columnName, columnName)
-    )
+    val requiredCassandraColumns = selectedColumns
 
     val solrCountEnabled = searchOptimization().enabled && tableIsSolrIndexed && cqlWhereClause.predicates.isEmpty
     val solrCountWhere = CqlWhereClause(Seq(s"${SolrConstants.SolrQuery} = '*:*'"), Seq.empty)
@@ -200,16 +182,12 @@ case class CassandraScanBuilder(
     }
   }
 
-  private def metadataReadColumnsMap =
-    (ttlFields.map(field => (field._2.name, TTL(field._1, Some(field._2.name)))) ++
-      writeTimeFields.map(field => (field._2.name, WriteTime(field._1, Some(field._2.name))))).toMap
-
   /** Construct where clause from pushdown filters */
   def cqlWhereClause = pushedFilters.foldLeft(CqlWhereClause.empty) { case (where, filter) => {
-    val (predicate, values) = filterToCqlAndValue(filter)
-    val newClause = CqlWhereClause(Seq(predicate), values)
-    where and newClause
-  }
+      val (predicate, values) = filterToCqlAndValue(filter)
+      val newClause = CqlWhereClause(Seq(predicate), values)
+      where and newClause
+    }
   }
 
   override def pushedFilters(): Array[Filter] = filtersForCassandra

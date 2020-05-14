@@ -63,7 +63,7 @@ class CassandraCatalog extends CatalogPlugin
   override def initialize(name: String, options: CaseInsensitiveStringMap): Unit = {
     catalogOptions = options
     val sparkConf = sparkSession.sparkContext.getConf
-    connectorConf = consolidateConfs(sparkConf, options.asCaseSensitiveMap().asScala.toMap, name)
+    connectorConf = consolidateConfs(sparkConf, sparkSession.conf.getAll, name, tableConf = options.asScala.toMap)
     connector = CassandraConnector(connectorConf)
     catalogName = name
     nameIdentifier = connector.conf.contactInfo.endPointStr()

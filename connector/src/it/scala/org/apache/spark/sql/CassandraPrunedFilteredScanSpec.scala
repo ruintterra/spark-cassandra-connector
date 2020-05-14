@@ -43,33 +43,33 @@ class CassandraPrunedFilteredScanSpec extends SparkCassandraITFlatSpecBase with 
   "CassandraPrunedFilteredScan" should "pushdown predicates for clustering keys" in {
     val colorDF = sparkSession.read.format(cassandraFormat).options(colorOptions ++ withPushdown).load()
     val executionPlan = colorDF.filter("priority > 5").queryExecution.executedPlan
-    val cts = findCassandraTableScanRDD(executionPlan)
+    val cts = findCassandraScan(executionPlan)
     cts.isDefined shouldBe true
-    cts.get.where shouldBe CqlWhereClause(Seq(""""priority" > ?"""), List(5))
+    cts.get.cqlQueryParts.whereClause shouldBe CqlWhereClause(Seq(""""priority" > ?"""), List(5))
   }
 
   it should "not pushdown predicates for clustering keys if filterPushdown is disabled" in {
     val colorDF = sparkSession.read.format(cassandraFormat).options(colorOptions ++ withoutPushdown).load()
     val executionPlan = colorDF.filter("priority > 5").queryExecution.executedPlan
-    val cts = findCassandraTableScanRDD(executionPlan)
+    val cts = findCassandraScan(executionPlan)
     cts.isDefined shouldBe true
-    cts.get.where shouldBe CqlWhereClause(Seq(), List())
+    cts.get.cqlQueryParts.whereClause shouldBe CqlWhereClause(Seq(), List())
   }
 
   it should "prune data columns" in {
     val fieldsDF = sparkSession.read.format(cassandraFormat).options(fieldsOptions ++ withPushdown).load()
     val executionPlan = fieldsDF.select("b","c","d").queryExecution.executedPlan
-    val cts = findCassandraTableScanRDD(executionPlan)
+    val cts = findCassandraScan(executionPlan)
     cts.isDefined shouldBe true
-    cts.get.selectedColumnNames should contain theSameElementsAs Seq("b", "c", "d")
+    cts.get.cqlQueryParts.selectedColumnRefs.map(_.columnName) should contain theSameElementsAs Seq("b", "c", "d")
   }
 
   it should "prune data columns if filterPushdown is disabled" in {
     val fieldsDF = sparkSession.read.format(cassandraFormat).options(fieldsOptions ++ withoutPushdown).load()
     val executionPlan = fieldsDF.select("b","c","d").queryExecution.executedPlan
-    val cts = findCassandraTableScanRDD(executionPlan)
+    val cts = findCassandraScan(executionPlan)
     cts.isDefined shouldBe true
-    cts.get.selectedColumnNames should contain theSameElementsAs Seq("b", "c", "d")
+    cts.get.cqlQueryParts.selectedColumnRefs.map(_.columnName) should contain theSameElementsAs Seq("b", "c", "d")
   }
 
 
