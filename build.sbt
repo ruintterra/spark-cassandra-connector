@@ -3,11 +3,12 @@ import sbt.Keys.parallelExecution
 import sbt.moduleFilter
 import sbt._
 
-lazy val scala212 = "2.12.10"
+lazy val scala212 = "2.12.11"
 lazy val supportedScalaVersions = List(scala212)
 
 // factor out common settings
-ThisBuild / scalacOptions += "-target:jvm-1.8"
+ThisBuild / scalaVersion := scala212
+ThisBuild / scalacOptions ++= Seq("-target:jvm-1.8")
 
 // Publishing Info
 ThisBuild / credentials ++= Publishing.Creds
@@ -96,7 +97,7 @@ lazy val connector = (project in file("connector"))
       ++ Dependencies.TestConnector.dependencies
       ++ Dependencies.Jetty.dependencies,
 
-    scalacOptions in (Compile, doc) ++= Seq("-no-java-comments") //Scala Bug on inner classes, CassandraJavaUtil,
+    scalacOptions in (Compile, doc) ++= Seq("-no-java-comments") //Scala Bug on inner classes, CassandraJavaUtil
   )
   .dependsOn(
     testSupport % "test",
