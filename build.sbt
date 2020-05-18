@@ -97,7 +97,7 @@ lazy val connector = (project in file("connector"))
       ++ Dependencies.TestConnector.dependencies
       ++ Dependencies.Jetty.dependencies,
 
-    scalacOptions in (Compile, doc) ++= Seq("-no-java-comments") //Scala Bug on inner classes, CassandraJavaUtil
+    scalacOptions in (Compile, doc) ++= Seq("-no-java-comments") //Scala Bug on inner classes, CassandraJavaUtil,
   )
   .dependsOn(
     testSupport % "test",
@@ -117,6 +117,7 @@ lazy val driver = (project in file("driver"))
   .settings(
     crossScalaVersions := supportedScalaVersions,
     name := "spark-cassandra-connector-driver",
+    assembly /test := {},
     libraryDependencies ++= Dependencies.Driver.dependencies
       ++ Dependencies.TestDriver.dependencies
       :+ ("org.scala-lang" % "scala-reflect" % scalaVersion.value)
