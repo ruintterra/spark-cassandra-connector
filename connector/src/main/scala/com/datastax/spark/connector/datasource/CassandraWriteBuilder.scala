@@ -7,7 +7,6 @@ import com.datastax.spark.connector.datasource.CassandraSourceUtil.consolidateCo
 import com.datastax.spark.connector.writer.{TTLOption, TimestampOption, WriteConf}
 import org.apache.spark.SparkConf
 import org.apache.spark.sql.SparkSession
-import org.apache.spark.sql.cassandra.CassandraSourceRelation
 import org.apache.spark.sql.cassandra.CassandraSourceRelation.{TTLParam, WriteTimeParam}
 import org.apache.spark.sql.connector.write._
 import org.apache.spark.sql.connector.write.streaming.{StreamingDataWriterFactory, StreamingWrite}
@@ -26,14 +25,15 @@ case class CassandraWriteBuilder(
   inputSchema: Option[StructType] = None)
   extends WriteBuilder with SupportsTruncate {
 
-  val connectorConf = consolidateConfs(
+  val consolidatedConf = consolidateConfs(
     catalogConf,
-    options.asCaseSensitiveMap().asScala.toMap,
+    session.conf.getAll,
     catalogName,
-    tableDef.keyspaceName)
+    tableDef.keyspaceName,
+    options.asScala.toMap)
 
-  val connector = CassandraConnector(connectorConf)
-  val writeConf = WriteConf.fromSparkConf(connectorConf)
+  val connector = CassandraConnector(consolidatedConf)
+  val writeConf = WriteConf.fromSparkConf(consolidatedConf)
 
   override def withInputDataSchema(schema: StructType): WriteBuilder = {
     copy(inputSchema = Some(schema))
@@ -54,9 +54,10 @@ case class CassandraWriteBuilder(
     * the best we can do.
     **/
   override def truncate(): WriteBuilder = {
-    if (connectorConf.getOption("confirm.truncate").getOrElse("false").toBoolean) {
+    if (consolidatedConf.getOption("confirm.truncate").getOrElse("false").toBoolean) {
       connector.withSessionDo(session =>
-        session.execute(QueryBuilder.truncate(CqlIdentifier.fromInternal(tableDef.keyspaceName), CqlIdentifier.fromInternal(tableDef.tableName)).asCql()))
+        session.execute(
+          QueryBuilder.truncate(CqlIdentifier.fromInternal(tableDef.keyspaceName), CqlIdentifier.fromInternal(tableDef.tableName)).asCql()))
       this
     }  else {
       throw new UnsupportedOperationException(
@@ -64,7 +65,8 @@ case class CassandraWriteBuilder(
           |this table prior to inserting data. If you would merely like
           |to change data already in the table use the "Append" mode.
           |To actually truncate please pass in true value to the option
-          |"confirm.truncate" when saving. """.stripMargin)
+          |"confirm.truncate" or set that value to true in the session.conf
+          | when saving. """.stripMargin)
     }
   }
 }

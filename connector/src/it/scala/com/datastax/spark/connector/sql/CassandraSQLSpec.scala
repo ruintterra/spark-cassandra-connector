@@ -669,6 +669,7 @@ class CassandraSQLSpec extends SparkCassandraITFlatSpecBase with DefaultCluster 
       .write
       .format("org.apache.spark.sql.cassandra")
       .options(Map("table" -> "test_copy", "keyspace" -> "sqlQuotedKeyspace"))
+      .mode("append")
       .save()
   }
 }

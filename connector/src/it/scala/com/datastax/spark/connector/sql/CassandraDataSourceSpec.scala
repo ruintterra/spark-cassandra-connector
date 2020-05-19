@@ -1,19 +1,17 @@
 package com.datastax.spark.connector.sql
 
-import org.apache.spark.sql.SaveMode._
-import org.apache.spark.sql.cassandra.{AnalyzedPredicates, CassandraPredicateRules, CassandraSourceOptions, CassandraSourceRelation}
-import org.apache.spark.sql.sources.{EqualTo, Filter}
-import org.apache.spark.sql.DataFrame
-import org.scalatest.BeforeAndAfterEach
-import com.datastax.spark.connector._
-import com.datastax.spark.connector.SparkCassandraITFlatSpecBase
 import com.datastax.spark.connector.cluster.DefaultCluster
 import com.datastax.spark.connector.cql.{CassandraConnector, TableDef}
-import com.datastax.spark.connector.rdd.{CassandraJoinRDD, CassandraTableScanRDD}
+import com.datastax.spark.connector.rdd.CassandraJoinRDD
+import com.datastax.spark.connector.{SparkCassandraITFlatSpecBase, _}
 import org.apache.spark.SparkConf
 import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.SaveMode._
 import org.apache.spark.sql.cassandra.CassandraSourceRelation.InClauseToJoinWithTableConversionThreshold
-import org.apache.spark.sql.execution.RowDataSourceScanExec
+import org.apache.spark.sql.cassandra.{AnalyzedPredicates, CassandraPredicateRules, CassandraSourceRelation}
+import org.apache.spark.sql.sources.{EqualTo, Filter}
+import org.scalatest.BeforeAndAfterEach
 
 import scala.concurrent.Future
 
@@ -114,6 +112,7 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with DefaultC
   }
 
   it should "allow to insert data into a cassandra table" in {
+    spark.sql("SET confirm.truncate = true")
     spark.sql(s"SELECT * FROM $ks.test_insert").collect() should have length 0
     spark.sql(s"INSERT OVERWRITE TABLE $ks.test_insert SELECT a, b FROM $ks.test1")
     spark.sql(s"SELECT * FROM $ks.test_insert").collect() should have length 1

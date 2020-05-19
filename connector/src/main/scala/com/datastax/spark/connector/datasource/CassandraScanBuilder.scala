@@ -36,9 +36,9 @@ case class CassandraScanBuilder(
     with SupportsPushDownRequiredColumns
     with Logging {
 
-  val connectorConf = consolidateConfs(catalogConf, session.conf.getAll, catalogName, tableDef.keyspaceName, options.asScala.toMap)
-  val connector = CassandraConnector(connectorConf)
-  val readConf = ReadConf.fromSparkConf(connectorConf)
+  val consolidatedConf = consolidateConfs(catalogConf, session.conf.getAll, catalogName, tableDef.keyspaceName, options.asScala.toMap)
+  val connector = CassandraConnector(consolidatedConf)
+  val readConf = ReadConf.fromSparkConf(consolidatedConf)
   val tableIsSolrIndexed =
     tableDef
       .indexes
@@ -48,18 +48,13 @@ case class CassandraScanBuilder(
   // ignore case
   val regularColumnNames = tableDef.regularColumns.map(_.columnName.toLowerCase())
   val nonRegularColumnNames = (tableDef.clusteringColumns ++ tableDef.partitionKey).map(_.columnName.toLowerCase)
-  val ignoreMissingMetadataColumns: Boolean = catalogConf.getBoolean(CassandraSourceRelation.IgnoreMissingMetaColumns.name,
+  val ignoreMissingMetadataColumns: Boolean = consolidatedConf.getBoolean(CassandraSourceRelation.IgnoreMissingMetaColumns.name,
     CassandraSourceRelation.IgnoreMissingMetaColumns.default)
 
-  val pushdownEnabled = connectorConf.getOption("pushdown").getOrElse("true").toBoolean
+  val pushdownEnabled = consolidatedConf.getOption("pushdown").getOrElse("true").toBoolean
   var filtersForCassandra = Array.empty[Filter]
   var selectedColumns: IndexedSeq[ColumnRef] = tableDef.columns.map(_.ref)
   var readSchema: StructType = _
-
-  def containsMetaDataRequests(): Unit = {
-    (catalogConf.getAllWithPrefix(WriteTimeParam.name + ".") ++
-      catalogConf.getAllWithPrefix(TTLParam.name + ".")).nonEmpty
-  }
 
   override def pushFilters(filters: Array[Filter]): Array[Filter] = if (!pushdownEnabled) {
     filters
@@ -83,7 +78,7 @@ case class CassandraScanBuilder(
     /** Apply non-basic rules **/
     val finalPushdown = predicatePushDownRules.foldLeft(basicPushdown)(
       (pushdowns, rules) => {
-        val pd = rules(pushdowns, tableDef, catalogConf)
+        val pd = rules(pushdowns, tableDef, consolidatedConf)
         logDebug(s"Applied ${rules.getClass.getSimpleName} Pushdown Filters:\n$pd")
         pd
       }
@@ -95,7 +90,7 @@ case class CassandraScanBuilder(
   }
 
   def additionalRules(): Seq[CassandraPredicateRules] = {
-    connectorConf.getOption(AdditionalCassandraPushDownRulesParam.name)
+    consolidatedConf.getOption(AdditionalCassandraPushDownRulesParam.name)
     match {
       case Some(classes) =>
         classes
@@ -116,11 +111,11 @@ case class CassandraScanBuilder(
   }
 
   def searchOptimization(): DseSearchOptimizationSetting =
-    catalogConf.get(
+    consolidatedConf.get(
       CassandraSourceRelation.SearchPredicateOptimizationParam.name,
       CassandraSourceRelation.SearchPredicateOptimizationParam.default
     ).toLowerCase match {
-      case "auto" => Auto(catalogConf.getDouble(
+      case "auto" => Auto(consolidatedConf.getDouble(
         CassandraSourceRelation.SearchPredicateOptimizationRatioParam.name,
         CassandraSourceRelation.SearchPredicateOptimizationRatioParam.default))
       case "on" | "true" => On
@@ -159,7 +154,7 @@ case class CassandraScanBuilder(
   }
 
   override def build(): Scan = {
-    CassandraScan(session, connector, tableDef, getQueryParts(), readSchema, readConf, catalogConf)
+    CassandraScan(session, connector, tableDef, getQueryParts(), readSchema, readConf, consolidatedConf)
   }
 
   def getQueryParts(): CqlQueryParts = {
@@ -240,7 +235,7 @@ case class CassandraScan(
   cqlQueryParts: CqlQueryParts,
   readSchema: StructType,
   readConf: ReadConf,
-  catalogConf: SparkConf) extends Scan
+  consolidatedConf: SparkConf) extends Scan
   with Batch
   with SupportsReportPartitioning {
 
@@ -283,9 +278,9 @@ case class CassandraScan(
   }
 
   override def description(): String = {
-    s"""Cassandra Scan ${tableDef.keyspaceName}.${tableDef.tableName}|
-                                                                     |Server Side Filters ${cqlQueryParts.whereClause}|
-                                                                     | Columns ${cqlQueryParts.selectedColumnRefs.mkString("[", ",", "]")}""".stripMargin
+    s"""Cassandra Scan: ${tableDef.keyspaceName}.${tableDef.tableName}
+    | Server Side Filters: ${cqlQueryParts.whereClause}
+    | Columns: ${cqlQueryParts.selectedColumnRefs.mkString("[", ",", "]")}""".stripMargin
 
   }
 }

@@ -62,7 +62,13 @@ object CassandraSourceUtil extends Logging {
 
     //Default settings
     val conf = sparkConf.clone()
-    val AllSCCConfNames = (ConfigParameter.names ++ DeprecatedConfigParameter.names)
+    val AllSCCConfNames = ConfigParameter.names ++ DeprecatedConfigParameter.names
+    val SqlPropertyKeys = AllSCCConfNames.flatMap( prop => Seq(
+      s"$cluster:$keyspace/$prop",
+      s"$cluster/$prop",
+      s"default/$prop",
+      prop))
+
     //Keyspace/Cluster level settings
     for (prop <- AllSCCConfNames) {
       val value = Seq(
@@ -73,6 +79,7 @@ object CassandraSourceUtil extends Logging {
         sqlConf.get(prop)).flatten.headOption
       value.foreach(conf.set(prop, _))
     }
+    conf.setAll(sqlConf -- SqlPropertyKeys)
     //Set all user properties while avoiding SCC Properties
     conf.setAll(tableConf -- (AllSCCConfNames ++ AllSCCConfNames.map(_.toLowerCase(Locale.ROOT))))
     conf

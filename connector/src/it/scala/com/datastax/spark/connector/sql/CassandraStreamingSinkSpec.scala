@@ -49,7 +49,7 @@ class CassandraStreamingSinkSpec extends SparkCassandraITFlatSpecBase with Defau
     val query = source.writeStream
       .option("checkpointLocation", checkpointDir.toString)
       .cassandraFormat("kv", ks)
-      .outputMode(OutputMode.Update)
+      .outputMode(OutputMode.Append())
       .start()
 
     eventually (timeout(Span(30, Seconds))) {
@@ -82,7 +82,7 @@ class CassandraStreamingSinkSpec extends SparkCassandraITFlatSpecBase with Defau
     val query = source.writeStream
       .option("checkpointLocation", checkpointDir.toString)
       .cassandraFormat("empty", ks)
-      .outputMode(OutputMode.Update)
+      .outputMode(OutputMode.Append())
       .start()
 
     eventually (timeout(Span(30, Seconds))) {

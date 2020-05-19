@@ -9,10 +9,12 @@ import com.datastax.spark.connector.cluster.DefaultCluster
 import com.datastax.spark.connector.cql.CassandraConnector
 import com.datastax.spark.connector.{SparkCassandraITFlatSpecBase, _}
 import org.apache.spark.sql._
+import org.apache.spark.sql.functions._
 import org.apache.spark.sql.cassandra.CassandraSourceRelation._
 import org.apache.spark.sql.cassandra._
 import org.apache.spark.sql.execution.streaming.StreamingQueryWrapper
 import org.scalatest.concurrent.Eventually
+
 
 import scala.concurrent.duration._
 import scala.concurrent.Future
@@ -28,6 +30,7 @@ class CassandraDirectJoinSpec extends SparkCassandraITFlatSpecBase with DefaultC
 
   override def beforeClass {
     sparkSession.conf.set(DirectJoinSettingParam.name, "auto")
+    setupCassandraCatalog
 
     conn.withSessionDo { session =>
       val executor = getExecutor(session)
@@ -512,6 +515,7 @@ class CassandraDirectJoinSpec extends SparkCassandraITFlatSpecBase with DefaultC
     }
   }
 
+
   it should "handle inner join with cassandra on the left side" in {
     val right = sparkSession.createDataset(Seq(DirectJoinRow(-1,-1),DirectJoinRow(1,1), DirectJoinRow(-5,-5)))
     val left = sparkSession.read.cassandraFormat("kv", ks).load()
@@ -555,6 +559,23 @@ class CassandraDirectJoinSpec extends SparkCassandraITFlatSpecBase with DefaultC
         .select('v as "pops", 'k as "k")
 
     val cassandra = spark.read.cassandraFormat("kv", ks).load
+
+    val firstJoin = cassandra.join(right, cassandra("k") === right("k"))
+
+    firstJoin
+      .filter(cassandra("v").isNotNull)
+      .groupBy(right("pops")).avg("v")
+  }
+
+  it should " work with in a join tree with literals and other expressions" in compareDirectOnDirectOff{ spark =>
+
+    val right =
+      spark
+        .createDataset(Seq(DirectJoinRow(-1,-1),DirectJoinRow(1,1), DirectJoinRow(-5,-5)))
+        .select('v as "pops", 'k as "k", lit(5) as "five")
+
+    val cassandra = spark.read.cassandraFormat("kv", ks).load
+      .withColumn("3k", 'k * 3)
 
     val firstJoin = cassandra.join(right, cassandra("k") === right("k"))
 
@@ -632,6 +653,10 @@ class CassandraDirectJoinSpec extends SparkCassandraITFlatSpecBase with DefaultC
     val quotes = joined.where($"xmlid" rlike "^.*?Q_.*$")
 
     quotes.count should be (1)
+  }
+
+  it should "handle joins between two datasource v2 tables in sparksql" in compareDirectOnDirectOff { spark =>
+    spark.sql(s"SELECT l.k, l.v, r.v1, r.v2 from $ks.kv as l LEFT JOIN $ks.kv2 as r on l.k == r.k")
   }
 
   private def compareDirectOnDirectOff(test: ((SparkSession) => DataFrame)) = {

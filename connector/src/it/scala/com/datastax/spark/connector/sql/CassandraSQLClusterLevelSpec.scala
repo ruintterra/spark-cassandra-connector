@@ -75,7 +75,7 @@ class CassandraSQLClusterLevelSpec extends SparkCassandraITFlatSpecBase with Two
     sparkSession.read.cassandraFormat("test1", ks, cluster1).load().createOrReplaceTempView("c1_test1")
     sparkSession.read.cassandraFormat("test3", ks, cluster2).load().createOrReplaceTempView("c2_test3")
 
-    val insert = sparkSession.sql(s"INSERT INTO TABLE c2_test3 SELECT * FROM c1_test1 AS t1").collect()
+    val insert = sparkSession.sql(s"INSERT INTO TABLE c2_test3 SELECT a, b as d, c as e FROM c1_test1 AS t1").collect()
     val result = sparkSession.sql(s"SELECT * FROM c2_test3 AS test3").collect()
     result should have length 5
   }
