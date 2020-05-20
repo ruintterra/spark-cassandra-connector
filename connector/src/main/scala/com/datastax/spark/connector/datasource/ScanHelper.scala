@@ -5,7 +5,7 @@ import java.io.IOException
 import com.datastax.oss.driver.api.core.CqlIdentifier._
 import com.datastax.oss.driver.api.core.cql.BoundStatement
 import com.datastax.oss.driver.api.core.{ConsistencyLevel, CqlSession}
-import com.datastax.spark.connector.ColumnRef
+import com.datastax.spark.connector.{ColumnName, ColumnRef, TTL, WriteTime}
 import com.datastax.spark.connector.cql.{CassandraConnector, ScanResult, Scanner, TableDef}
 import com.datastax.spark.connector.rdd.CassandraLimit.limitToClause
 import com.datastax.spark.connector.rdd.partitioner.dht.{Token, TokenFactory}
@@ -19,6 +19,35 @@ import com.datastax.spark.connector.util.{CqlWhereParser, Logging}
 import scala.collection.JavaConverters._
 
 object ScanHelper extends Logging {
+
+
+  def checkColumnsExistence(columns: Seq[ColumnRef], tableDef: TableDef): Seq[ColumnRef] = {
+    val allColumnNames = tableDef.columns.map(_.columnName).toSet
+    val regularColumnNames = tableDef.regularColumns.map(_.columnName).toSet
+    val keyspaceName = tableDef.keyspaceName
+    val tableName = tableDef.tableName
+
+    def checkSingleColumn(column: ColumnRef) = {
+      column match {
+        case ColumnName(columnName, _) =>
+          if (!allColumnNames.contains(columnName))
+            throw new IOException(s"Column $column not found in table $keyspaceName.$tableName")
+        case TTL(columnName, _) =>
+          if (!regularColumnNames.contains(columnName))
+            throw new IOException(s"TTL can be obtained only for regular columns, " +
+              s"but column $columnName is not a regular column in table $keyspaceName.$tableName.")
+        case WriteTime(columnName, _) =>
+          if (!regularColumnNames.contains(columnName))
+            throw new IOException(s"TTL can be obtained only for regular columns, " +
+              s"but column $columnName is not a regular column in table $keyspaceName.$tableName.")
+        case _ =>
+      }
+
+      column
+    }
+
+    columns.map(checkSingleColumn)
+  }
 
 
   //We call the types from the void

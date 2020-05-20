@@ -2,6 +2,7 @@ package com.datastax.spark.connector.sql
 
 import com.datastax.spark.connector.cluster.DefaultCluster
 import com.datastax.spark.connector.cql.{CassandraConnector, TableDef}
+import com.datastax.spark.connector.datasource.CassandraInJoin
 import com.datastax.spark.connector.rdd.CassandraJoinRDD
 import com.datastax.spark.connector.{SparkCassandraITFlatSpecBase, _}
 import org.apache.spark.SparkConf
@@ -10,6 +11,7 @@ import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.SaveMode._
 import org.apache.spark.sql.cassandra.CassandraSourceRelation.InClauseToJoinWithTableConversionThreshold
 import org.apache.spark.sql.cassandra.{AnalyzedPredicates, CassandraPredicateRules, CassandraSourceRelation}
+import org.apache.spark.sql.execution.datasources.v2.BatchScanExec
 import org.apache.spark.sql.sources.{EqualTo, Filter}
 import org.scalatest.BeforeAndAfterEach
 
@@ -279,55 +281,56 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with DefaultC
   private def joinConversionLowThreshold(testFun: => Unit): Unit =
     withConfig(InClauseToJoinWithTableConversionThreshold.name, 1) { testFun }
 
-  private def flattenRddDependencies(rdds: Seq[RDD[_]], rdd: RDD[_]): Seq[RDD[_]] =
-    if (rdd.dependencies.isEmpty) rdds :+ rdd else rdd.dependencies.flatMap(d => flattenRddDependencies(rdds :+ rdd, d.rdd))
-
-  private def assertOnCassandraJoinRddPresence(rdd: RDD[_]): Unit = {
+  private def assertOnCassandraInJoinPresence(df: DataFrame): Unit = {
     if (pushDown)
-      withClue("Given RDD does not contain CassandraJoinRDD in it's predecessors.") {
-        flattenRddDependencies(Seq[RDD[_]](), rdd).find(_.isInstanceOf[CassandraJoinRDD[_, _]]) shouldBe defined
+      withClue(s"Given RDD does not contain CassandraInJoin in it's predecessors.\n${df.queryExecution.sparkPlan.toString()}") {
+        df.queryExecution.executedPlan.collectLeaves().collectFirst{
+          case a@BatchScanExec(_, _: CassandraInJoin) => a
+        } shouldBe defined
      }
     else
-      assertOnAbsenceOfCassandraJoinRdd(rdd)
+      assertOnAbsenceOfCassandraInJoin(df)
   }
 
-  private def assertOnAbsenceOfCassandraJoinRdd(rdd: RDD[_]): Unit =
-    withClue("Given RDD contains CassandraJoinRDD in it's predecessors.") {
-      flattenRddDependencies(Seq[RDD[_]](), rdd).find(_.isInstanceOf[CassandraJoinRDD[_, _]]) should not be defined
+  private def assertOnAbsenceOfCassandraInJoin(df: DataFrame): Unit =
+    withClue(s"Given RDD contains CassandraJoinRDD in it's predecessors.\n${df.queryExecution.sparkPlan.toString()}") {
+      df.queryExecution.executedPlan.collectLeaves().collectFirst{
+        case a@BatchScanExec(_, _: CassandraInJoin) => a
+      } shouldBe empty
     }
 
   it should "convert to joinWithCassandra for 'IN' clause spanned on simple partition key " in joinConversionLowThreshold {
-    val df = spark.sql(s"SELECT * FROM tmpDf_test2 WHERE customer_id IN (1,2)")
-    assertOnCassandraJoinRddPresence(df.rdd)
+    val df = spark.sql(s"SELECT * FROM $ks.df_test2 WHERE customer_id IN (1,2)")
+    assertOnCassandraInJoinPresence(df)
   }
 
   it should "convert to joinWithCassandra for 'IN' clause for composite partition key " in joinConversionLowThreshold {
     val df = spark.sql(s"SELECT a,b FROM $ks.test1 WHERE a IN (1,2) AND b IN (1,2) AND c IN (1,2)")
-    assertOnCassandraJoinRddPresence(df.rdd)
+    assertOnCassandraInJoinPresence(df)
     df.collect() should have size 8
   }
 
   it should "convert to joinWithCassandra for 'IN' clause for some columns of composite partition key " in joinConversionLowThreshold {
     val df = spark.sql(s"SELECT * FROM $ks.test1 WHERE a IN (1,2) AND b = 2 AND c IN (1,2,3)")
-    assertOnCassandraJoinRddPresence(df.rdd)
+    assertOnCassandraInJoinPresence(df)
     df.collect() should have size 4
   }
 
   it should "convert to joinWithCassandra for 'IN' clause for partition key and some clustering columns" in joinConversionLowThreshold {
     val df = spark.sql(s"SELECT * FROM $ks.test1 WHERE a IN (1,2) AND b IN (1,2) AND c IN (1,2) AND d IN (1) AND e IN (1)")
-    assertOnCassandraJoinRddPresence(df.rdd)
+    assertOnCassandraInJoinPresence(df)
     df.collect() should have size 2
   }
 
   it should "convert to joinWithCassandra for 'IN' clause for partition key and all clustering columns" in joinConversionLowThreshold {
     val df = spark.sql(s"SELECT * FROM $ks.test1 WHERE a IN (1,2) AND b IN (1,2) AND c IN (1,2) AND d IN (1) AND e IN (1) AND f IN (1,3)")
-    assertOnCassandraJoinRddPresence(df.rdd)
+    assertOnCassandraInJoinPresence(df)
     df.collect() should have size 1
   }
 
   it should "convert to joinWithCassandra for 'IN' clause for partition and some clustering columns and range" in joinConversionLowThreshold {
     val df = spark.sql(s"SELECT * FROM $ks.test1 WHERE a IN (1,2) AND b IN (1,2) AND c IN (1,2) AND d IN (1) AND e IN (1) AND f < 2")
-    assertOnCassandraJoinRddPresence(df.rdd)
+    assertOnCassandraInJoinPresence(df)
     val rows = df.collect()
     rows should have size 1
     rows.head.size should be(8)
@@ -335,19 +338,19 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with DefaultC
 
   it should "convert to joinWithCassandra for 'IN' clause for partition columns and respect required columns" in joinConversionLowThreshold {
     val df = spark.sql(s"SELECT a,b,c FROM $ks.test1 WHERE a IN (1,2) AND b IN (1,2) AND c IN (1,2)")
-    assertOnCassandraJoinRddPresence(df.rdd)
+    assertOnCassandraInJoinPresence(df)
     df.collect().head.size should be(3)
   }
 
   it should "convert to joinWithCassandra for 'IN' clause for partition columns and retrieve all columns" in joinConversionLowThreshold {
     val df = spark.sql(s"SELECT * FROM $ks.test1 WHERE a IN (1,2) AND b IN (1,2) AND c IN (1,2)")
-    assertOnCassandraJoinRddPresence(df.rdd)
+    assertOnCassandraInJoinPresence(df)
     df.collect().head.size should be(8)
   }
 
   it should "convert to joinWithCassandra for 'IN' clause for partition key and clustering columns regardless the predicate order" in joinConversionLowThreshold {
     val df = spark.sql(s"SELECT * FROM $ks.test1 WHERE e IN (2) AND b IN (1,2) AND a IN (1,2) AND d IN (2) AND f IN (2) AND c IN (1)")
-    assertOnCassandraJoinRddPresence(df.rdd)
+    assertOnCassandraInJoinPresence(df)
     val rows = df.collect()
     rows should have size 1
     rows.head.mkString(",") should be("1,2,1,2,2,2,2,2")
@@ -355,7 +358,7 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with DefaultC
 
   it should "convert to joinWithCassandra for 'IN' clause for partition key and clustering columns with equal predicates" in joinConversionLowThreshold {
     val df = spark.sql(s"SELECT * FROM $ks.test1 WHERE e = 2 AND b IN (1,2) AND a IN (1,2) AND d = 2 AND f IN (2) AND c = 1")
-    assertOnCassandraJoinRddPresence(df.rdd)
+    assertOnCassandraInJoinPresence(df)
     val rows = df.collect()
     rows should have size 1
     rows.head.mkString(",") should be("1,2,1,2,2,2,2,2")
@@ -363,7 +366,7 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with DefaultC
 
   it should "convert to joinWithCassandra for 'IN' clause for partition columns and respect required columns order" in joinConversionLowThreshold {
     val df = spark.sql(s"SELECT b,a FROM $ks.test1 WHERE a IN (1) AND b IN (2) AND c IN (1,9)")
-    assertOnCassandraJoinRddPresence(df.rdd)
+    assertOnCassandraInJoinPresence(df)
     val rows = df.collect()
     rows should have size 4
     rows.foreach(row => row.mkString(",") should be("2,1"))
@@ -371,7 +374,7 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with DefaultC
 
   it should "convert to joinWithCassandra for 'IN' clause for partition columns and allow count" in joinConversionLowThreshold {
     val df = spark.sql(s"SELECT count(1) FROM $ks.test1 WHERE a IN (1) AND b IN (2) AND c IN (1,9)")
-    assertOnCassandraJoinRddPresence(df.rdd)
+    assertOnCassandraInJoinPresence(df)
     val rows = df.collect()
     rows should have size 1
     rows.head.getLong(0) should be(4)
@@ -379,25 +382,26 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with DefaultC
 
   it should "not convert to joinWithCassandra when some partition columns have no predicate" in joinConversionLowThreshold {
     val df = spark.sql(s"SELECT * FROM $ks.test1 WHERE a IN (1) AND b IN (2,3,4,5)")
-    assertOnAbsenceOfCassandraJoinRdd(df.rdd)
+    assertOnAbsenceOfCassandraInJoin(df)
   }
 
   it should "not convert to joinWithCassandra if 'IN' value sets cumulative size does not exceed configurable threshold" in
       withConfig(InClauseToJoinWithTableConversionThreshold.name, 9) {
     val df = spark.sql(s"SELECT * FROM $ks.test1 WHERE a IN (1,2) AND b IN (2,1) AND c IN (3,1)")
-    assertOnAbsenceOfCassandraJoinRdd(df.rdd)
+    assertOnAbsenceOfCassandraInJoin(df)
   }
 
   it should "not convert to joinWithCassandra for 'IN' clause if threshold is 0" in
       withConfig((InClauseToJoinWithTableConversionThreshold.name, 0)) {
         val df = spark.sql(s"SELECT * FROM $ks.test1 WHERE a IN (1) AND b IN (2) AND c IN (1,9)")
-        assertOnAbsenceOfCassandraJoinRdd(df.rdd)
+        assertOnAbsenceOfCassandraInJoin(df)
   }
 
   it should "keep default parallelism when converting IN clause to joinWithCassandra" in joinConversionLowThreshold {
     if (pushDown) {
+      spark.sparkContext.defaultParallelism
       val df = spark.sql(s"SELECT * FROM $ks.test1 WHERE a IN (1,2) AND b IN (1,2) AND c IN (1,2)")
-      assertOnCassandraJoinRddPresence(df.rdd)
+      assertOnCassandraInJoinPresence(df)
       df.rdd.partitions.length should be (df.sparkSession.sparkContext.defaultParallelism)
     }
   }

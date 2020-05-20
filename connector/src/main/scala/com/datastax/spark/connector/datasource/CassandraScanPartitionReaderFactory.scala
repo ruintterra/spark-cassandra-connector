@@ -148,13 +148,13 @@ case class CassandraCountPartitionReader(
   override val rowReader = new UnsafeRowReaderFactory(StructType(Seq(StructField("count", LongType, false))))
     .rowReader(tableDef, queryParts.selectedColumnRefs)
 
+  /*
+  Casting issue here for extremely large C* partitions,
+  but it's unlikely that a Count Request will succeed if the
+  Split has more than Int.Max Entries anyway.
+  */
   override val rowIterator: Iterator[InternalRow] = {
-    val count = getIterator().foldLeft(0L) { case (count, result) => count + result.getLong(0) }
-
-    //Casting issue here for extremely large C* partitions, but it's un likely that a Count Request will succeed if the
-    //Split has more than Int.Max Entries anyway.
-    //TODO combine iterators to support full Long values
-    Iterator.fill(count.toInt)(InternalRow.empty)
+    getIterator().flatMap(row => Iterator.fill(row.getLong(0).toInt)(InternalRow.empty))
   }
 }
 
