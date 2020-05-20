@@ -42,7 +42,7 @@ case class CassandraDirectJoinStrategy(spark: SparkSession) extends Strategy wit
       our target branch. This will let us know all of the pushable filters that we can
       use in the direct join.
        */
-      val dataSourceOpitimzedPlan = DataSourceV2Strategy(joinTargetBranch).head
+      val dataSourceOpitimzedPlan = new DataSourceV2Strategy(spark)(joinTargetBranch).head
       val cassandraScanExec = getScanExec(dataSourceOpitimzedPlan).get
 
       joinTargetBranch match {

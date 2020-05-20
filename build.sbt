@@ -26,7 +26,8 @@ ThisBuild / version := Publishing.Version
 
 Global / resolvers ++= Seq(
   DefaultMavenRepository,
-  Resolver.sonatypeRepo("public")
+  Resolver.sonatypeRepo("public"),
+  "Staging for SparkcRc2" at "https://repository.apache.org/content/repositories/orgapachespark-1345/"
 )
 
 lazy val IntegrationTest = config("it") extend Test

@@ -3,10 +3,8 @@ package com.datastax.spark.connector.sql
 import com.datastax.spark.connector.cluster.DefaultCluster
 import com.datastax.spark.connector.cql.{CassandraConnector, TableDef}
 import com.datastax.spark.connector.datasource.CassandraInJoin
-import com.datastax.spark.connector.rdd.CassandraJoinRDD
 import com.datastax.spark.connector.{SparkCassandraITFlatSpecBase, _}
 import org.apache.spark.SparkConf
-import org.apache.spark.rdd.RDD
 import org.apache.spark.sql.DataFrame
 import org.apache.spark.sql.SaveMode._
 import org.apache.spark.sql.cassandra.CassandraSourceRelation.InClauseToJoinWithTableConversionThreshold
@@ -124,8 +122,8 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with DefaultC
     spark.sql(s"SELECT a, b from $ks.test1")
       .write
       .format("org.apache.spark.sql.cassandra")
-      .mode(Append)
       .options(Map("table" -> "test_insert1", "keyspace" -> ks))
+      .mode("append")
       .save()
 
     cassandraTable(TableRef("test_insert1", ks)).collect() should have length 1

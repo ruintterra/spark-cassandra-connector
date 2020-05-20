@@ -10,6 +10,7 @@ import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.{DataFrame, SQLContext, SaveMode, SparkSession}
 import com.datastax.spark.connector.util.Logging
 import org.apache.spark.sql.connector.catalog.{Identifier, Table, TableProvider}
+import org.apache.spark.sql.connector.expressions.Transform
 import org.apache.spark.sql.execution.streaming.Sink
 import org.apache.spark.sql.streaming.OutputMode
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
@@ -32,7 +33,14 @@ import scala.collection.JavaConverters._
  *      )
  */
 class DefaultSource() extends TableProvider with DataSourceRegister {
-  override def getTable(options: CaseInsensitiveStringMap): Table = {
+
+  override def getTable(schema: StructType, partitioning: Array[Transform], properties:java.util.Map[String,String]): Table = {
+    getTable(new CaseInsensitiveStringMap(properties))
+  }
+
+  override def shortName(): String = "cassandra"
+
+  def getTable(options: CaseInsensitiveStringMap): CassandraTable = {
     val session = SparkSession.active
     val sparkConf = session.sparkContext.getConf
     val scalaOptions = options.asScala
@@ -49,7 +57,7 @@ class DefaultSource() extends TableProvider with DataSourceRegister {
       session.conf.getAll,
       cluster,
       keyspace,
-      options.asScala.toMap)
+      scalaOptions.toMap)
     val connector = CassandraConnector(connectorConf)
 
     CassandraTable(
@@ -60,7 +68,10 @@ class DefaultSource() extends TableProvider with DataSourceRegister {
       CassandraCatalog.getTableMetaData(connector, Identifier.of(Array(keyspace), table)))
   }
 
-  override def shortName(): String = "cassandra"
+  override def inferSchema(options: CaseInsensitiveStringMap): StructType = {
+    getTable(options).schema()
+  }
+
 }
 
 /** Store data source options */

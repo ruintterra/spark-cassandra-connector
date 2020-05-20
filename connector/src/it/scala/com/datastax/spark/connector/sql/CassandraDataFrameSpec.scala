@@ -312,7 +312,7 @@ class CassandraDataFrameSpec extends SparkCassandraITFlatSpecBase with DefaultCl
       Seq(DataTypes.INT, DataTypes.INT, DataTypes.INT, DataTypes.TIMESTAMP)
       )
 
-    df.write.cassandraFormat(table, ks).save()
+    df.write.cassandraFormat(table, ks).mode("append").save()
 
     val  rows = sparkSession
       .read

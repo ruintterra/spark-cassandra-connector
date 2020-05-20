@@ -22,7 +22,7 @@ case class CassandraWriteBuilder(
   tableDef: TableDef,
   catalogName: String,
   options: CaseInsensitiveStringMap,
-  inputSchema: Option[StructType] = None)
+  inputSchema: StructType)
   extends WriteBuilder with SupportsTruncate {
 
   val consolidatedConf = consolidateConfs(
@@ -35,15 +35,10 @@ case class CassandraWriteBuilder(
   val connector = CassandraConnector(consolidatedConf)
   val writeConf = WriteConf.fromSparkConf(consolidatedConf)
 
-  override def withInputDataSchema(schema: StructType): WriteBuilder = {
-    copy(inputSchema = Some(schema))
-  }
-
   override def buildForBatch(): BatchWrite = getWrite()
 
   def getWrite(): CassandraBulkWrite = {
-    val schema = inputSchema.getOrElse(throw new IllegalArgumentException("No Input Schema Given"))
-    CassandraBulkWrite(session, connector, tableDef, writeConf, schema, catalogConf)
+    CassandraBulkWrite(session, connector, tableDef, writeConf, inputSchema, catalogConf)
   }
 
   override def buildForStreaming(): StreamingWrite = getWrite()

@@ -28,6 +28,7 @@ import com.datastax.spark.connector.util._
 import com.datastax.spark.connector.writer.{RowWriterFactory, SqlRowWriter, TTLOption, TimestampOption, WriteConf}
 import com.datastax.spark.connector.{SomeColumns, _}
 import org.apache.spark.sql.catalyst.util.CaseInsensitiveMap
+import org.apache.spark.sql.connector.catalog.CatalogV2Util
 import org.apache.spark.sql.execution.datasources.v2.{DataSourceV2Relation, DataSourceV2ScanRelation}
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 
@@ -764,7 +765,7 @@ object CassandraSourceRelation extends Logging {
     val oldPlan = ds.queryExecution.logical
     Dataset[K](ds.sparkSession,
       oldPlan.transform {
-        case ds@DataSourceV2Relation(_: CassandraTable, _, options) =>
+        case ds@DataSourceV2Relation(_: CassandraTable, _, _, _, options) =>
           ds.copy(options = applyDirectJoinSetting(options, directJoinSetting))
         case ds@DataSourceV2ScanRelation(_: CassandraSourceRelation, scan: CassandraScan, _) =>
           ds.copy(scan = scan.copy(consolidatedConf = applyDirectJoinSetting(scan.consolidatedConf, directJoinSetting)))
@@ -808,4 +809,8 @@ object CassandraSourceRelation extends Logging {
 object SolrConstants {
   val DseSolrIndexClassName = "com.datastax.bdp.search.solr.Cql3SolrSecondaryIndex"
   val SolrQuery = "solr_query"
+}
+
+object UtilWrapper {
+  def catalogV2Util = org.apache.spark.sql.connector.catalog.CatalogV2Util
 }

@@ -9,10 +9,10 @@ import com.datastax.oss.driver.api.core.metadata.Metadata
 import com.datastax.oss.driver.api.core.metadata.schema.{ClusteringOrder, TableMetadata}
 import com.datastax.oss.driver.api.querybuilder.SchemaBuilder
 import com.datastax.oss.driver.api.querybuilder.schema._
+import com.datastax.oss.driver.internal.core.metadata.schema.parsing.RelationParser
 import com.datastax.spark.connector.cql.CassandraConnector
 import com.datastax.spark.connector.datasource.CassandraSourceUtil._
-import com.datastax.spark.connector.util.NameTools
-import javax.naming.NamingSecurityException
+import com.datastax.spark.connector.util.{Logging, NameTools}
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.analysis.{NamespaceAlreadyExistsException, NoSuchNamespaceException, NoSuchTableException, TableAlreadyExistsException}
 import org.apache.spark.sql.connector.catalog.NamespaceChange.{RemoveProperty, SetProperty}
@@ -37,7 +37,8 @@ class CassandraCatalogException(msg: String) extends IllegalArgumentException(ms
   */
 class CassandraCatalog extends CatalogPlugin
   with TableCatalog
-  with SupportsNamespaces {
+  with SupportsNamespaces
+  with Logging {
 
   import CassandraCatalog._
 
@@ -52,7 +53,12 @@ class CassandraCatalog extends CatalogPlugin
   val PartitionKey = "partition_key"
   val ClusteringKey = "clustering_key"
 
-  val NonCassandraProperties = Seq(PartitionKey, ClusteringKey) ++ TableCatalog.RESERVED_PROPERTIES.asScala
+  /*
+  This is accessing a driver internal class, but I feel like it's safer than blacklisting Spark Specific properties.
+  Hopefully this will also automatically then allow us to pass new C* compatible options by just updating the driver.
+   */
+  val CassandraProperties = RelationParser.OPTION_CODECS.keySet().asScala
+
   var connector: CassandraConnector = _
   var connectorConf: SparkConf = _
   var catalogOptions: CaseInsensitiveStringMap = _
@@ -265,7 +271,9 @@ class CassandraCatalog extends CatalogPlugin
       createTable.withColumn(colName, dataType)
     }
 
-    val userProperties = tableProps -- (NonCassandraProperties)
+    val userProperties = tableProps.filter{ case (key, _) => CassandraProperties.contains(key) }
+    val unusedProperties = tableProps -- userProperties.keys
+    logDebug(s"Ignoring non-cassandra properties for table $unusedProperties")
     val createTableWithProperties = userProperties.foldLeft(createTableWithColumns) {
       case (createStmt, (key, value)) => createStmt.withOption(key, parseProperty(value)).asInstanceOf[CreateTable]
     }

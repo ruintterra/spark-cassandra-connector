@@ -185,6 +185,7 @@ val df = spark
 
 df.write
   .cassandraFormat("words_copy", "test")
+  .mode("append")
   .save()
 ```
 
@@ -198,10 +199,12 @@ import org.apache.spark.sql.cassandra._
 df.write
   .format("org.apache.spark.sql.cassandra")
   .options(Map("table" -> "words_copy", "keyspace" -> "test", "cluster" -> "cluster_B"))
+  .mode("append")
   .save()
 
 df.write
   .cassandraFormat("words_copy", "test", "cluster_B")
+  .mode("append")
   .save()
 
 ```
@@ -289,6 +292,7 @@ renamed.createCassandraTable(
 
 renamed.write
   .cassandraFormat("renamed", "test")
+  .mode("append")
   .save()
 ```
 

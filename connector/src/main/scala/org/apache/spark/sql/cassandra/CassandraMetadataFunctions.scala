@@ -99,7 +99,7 @@ object CassandraMetaDataRule extends Rule[LogicalPlan] {
     val cassandraCql = s"${metaDataExpression.cql}($cassandraColumnName)"
 
     val (cassandraTable) = plan.collectFirst {
-      case DataSourceV2Relation(table: CassandraTable, _, _)
+      case DataSourceV2Relation(table: CassandraTable, _, _, _, _)
         if table.tableDef.columnByName.contains(cassandraColumnName) => table }
       .getOrElse(throw new IllegalArgumentException(
         s"Unable to find Cassandra Source Relation for TTL/Writetime for column $cassandraColumnName"))
@@ -131,7 +131,7 @@ object CassandraMetaDataRule extends Rule[LogicalPlan] {
 
     // Add Metadata to CassandraSource
     val cassandraSourceModifiedPlan = metadataFunctionRemovedPlan.transform {
-      case cassandraRelation@DataSourceV2Relation(table: CassandraTable, _, _)
+      case cassandraRelation@DataSourceV2Relation(table: CassandraTable, _, _, _, _)
         if table.tableDef.columnByName.contains(cassandraColumnName) =>
         val modifiedCassandraTable = table.copy(optionalSchema = Some(table.schema().add(cassandraField)))
         cassandraRelation.copy(

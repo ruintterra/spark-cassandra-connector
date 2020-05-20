@@ -10,7 +10,7 @@ import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.connector.catalog.{SupportsRead, SupportsWrite, Table, TableCapability}
 import org.apache.spark.sql.connector.expressions.{Expressions, Transform}
 import org.apache.spark.sql.connector.read.ScanBuilder
-import org.apache.spark.sql.connector.write.WriteBuilder
+import org.apache.spark.sql.connector.write.{LogicalWriteInfo, WriteBuilder}
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
 
@@ -63,8 +63,8 @@ case class CassandraTable(
 
   override def name(): String = metadata.getName.asInternal()
 
-  override def newWriteBuilder(options: CaseInsensitiveStringMap): WriteBuilder = {
-    CassandraWriteBuilder(session, catalogConf, tableDef, catalogName, options)
+  override def newWriteBuilder(info: LogicalWriteInfo): WriteBuilder = {
+    CassandraWriteBuilder(session, catalogConf, tableDef, catalogName, info.options, info.schema)
   }
 }
 
