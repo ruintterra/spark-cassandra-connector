@@ -18,7 +18,7 @@ import scala.collection.JavaConverters._
 
 case class CassandraTable(
   session: SparkSession,
-  catalogConf: SparkConf,
+  catalogConf: CaseInsensitiveStringMap,
   connector: CassandraConnector,
   catalogName: String,
   metadata: TableMetadata,
@@ -58,13 +58,15 @@ case class CassandraTable(
   val tableDef = tableFromCassandra(connector, metadata.getKeyspace.asInternal(), name())
 
   override def newScanBuilder(options: CaseInsensitiveStringMap): ScanBuilder = {
-    CassandraScanBuilder(session, catalogConf, tableDef, catalogName, options)
+    val combinedOptions = (catalogConf.asScala ++ options.asScala).asJava
+    CassandraScanBuilder(session, tableDef, catalogName, new CaseInsensitiveStringMap(combinedOptions))
   }
 
   override def name(): String = metadata.getName.asInternal()
 
   override def newWriteBuilder(info: LogicalWriteInfo): WriteBuilder = {
-    CassandraWriteBuilder(session, catalogConf, tableDef, catalogName, info.options, info.schema)
+    val combinedOptions = (catalogConf.asScala ++ info.options.asScala).asJava
+    CassandraWriteBuilder(session, tableDef, catalogName, new CaseInsensitiveStringMap(combinedOptions), info.schema)
   }
 }
 

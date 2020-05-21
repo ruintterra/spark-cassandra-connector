@@ -18,7 +18,6 @@ import scala.util.Try
 
 case class CassandraWriteBuilder(
   session: SparkSession,
-  catalogConf: SparkConf,
   tableDef: TableDef,
   catalogName: String,
   options: CaseInsensitiveStringMap,
@@ -26,19 +25,37 @@ case class CassandraWriteBuilder(
   extends WriteBuilder with SupportsTruncate {
 
   val consolidatedConf = consolidateConfs(
-    catalogConf,
+    session.sparkContext.getConf,
     session.conf.getAll,
     catalogName,
     tableDef.keyspaceName,
     options.asScala.toMap)
 
+  val initialWriteConf = WriteConf.fromSparkConf(consolidatedConf)
+
+  private val ttlWriteOption =
+    consolidatedConf.getOption(TTLParam.name)
+      .map(value =>
+        Try(value.toInt)
+          .map(TTLOption.constant)
+          .getOrElse(TTLOption.perRow(value)))
+      .getOrElse(initialWriteConf.ttl)
+
+  private val timestampWriteOption =
+    consolidatedConf.getOption(WriteTimeParam.name)
+      .map(value =>
+        Try(value.toLong)
+          .map(TimestampOption.constant)
+          .getOrElse(TimestampOption.perRow(value)))
+      .getOrElse(initialWriteConf.timestamp)
+
   val connector = CassandraConnector(consolidatedConf)
-  val writeConf = WriteConf.fromSparkConf(consolidatedConf)
+  val writeConf = initialWriteConf.copy(ttl = ttlWriteOption, timestamp = timestampWriteOption)
 
   override def buildForBatch(): BatchWrite = getWrite()
 
   def getWrite(): CassandraBulkWrite = {
-    CassandraBulkWrite(session, connector, tableDef, writeConf, inputSchema, catalogConf)
+    CassandraBulkWrite(session, connector, tableDef, writeConf, inputSchema, consolidatedConf)
   }
 
   override def buildForStreaming(): StreamingWrite = getWrite()
@@ -72,29 +89,11 @@ case class CassandraBulkWrite(
   tableDef: TableDef,
   writeConf: WriteConf,
   inputSchema: StructType,
-  catalogConf: SparkConf)
+  consolidatedConf: SparkConf)
   extends BatchWrite
     with StreamingWrite {
 
-  private val ttlWriteOption =
-    catalogConf.getOption(TTLParam.name)
-      .map(value =>
-        Try(value.toInt)
-          .map(TTLOption.constant)
-          .getOrElse(TTLOption.perRow(value)))
-      .getOrElse(writeConf.ttl)
 
-  private val timestampWriteOption =
-    catalogConf.getOption(WriteTimeParam.name)
-      .map(value =>
-        Try(value.toLong)
-          .map(TimestampOption.constant)
-          .getOrElse(TimestampOption.perRow(value)))
-      .getOrElse(writeConf.timestamp)
-
-  val metadataEnrichedWriteConf = writeConf.copy(
-    ttl = ttlWriteOption,
-    timestamp = timestampWriteOption)
 
   override def createBatchWriterFactory(info: PhysicalWriteInfo): DataWriterFactory = getWriterFactory()
 
@@ -109,7 +108,7 @@ case class CassandraBulkWrite(
       connector,
       tableDef,
       inputSchema,
-      metadataEnrichedWriteConf
+      writeConf
     )
   }
 

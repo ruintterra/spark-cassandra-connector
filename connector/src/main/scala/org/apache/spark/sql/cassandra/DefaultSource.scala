@@ -62,7 +62,7 @@ class DefaultSource() extends TableProvider with DataSourceRegister {
 
     CassandraTable(
       session,
-      connectorConf,
+      options,
       connector,
       cluster,
       CassandraCatalog.getTableMetaData(connector, Identifier.of(Array(keyspace), table)))

@@ -52,13 +52,17 @@ object CassandraSourceUtil extends Logging {
     * table level -> keyspace level -> cluster level ->
     * default. Use the first available setting. Default
     * settings are stored in SparkConf.
+    *
+    * User options are checked first
+    * Then the Spark Session Conf
+    * Then finally the SparkConf
     */
   def consolidateConfs(
     sparkConf: SparkConf,
     sqlConf: Map[String, String],
     cluster: String = "default",
     keyspace: String = "",
-    tableConf: Map[String, String] = Map.empty): SparkConf = {
+    userOptions: Map[String, String] = Map.empty): SparkConf = {
 
     //Default settings
     val conf = sparkConf.clone()
@@ -72,7 +76,7 @@ object CassandraSourceUtil extends Logging {
     //Keyspace/Cluster level settings
     for (prop <- AllSCCConfNames) {
       val value = Seq(
-        tableConf.get(prop.toLowerCase(Locale.ROOT)), //tableConf is actually a caseInsensitive map so lower case keys must be used
+        userOptions.get(prop.toLowerCase(Locale.ROOT)), //userOptions is actually a caseInsensitive map so lower case keys must be used
         sqlConf.get(s"$cluster:$keyspace/$prop"),
         sqlConf.get(s"$cluster/$prop"),
         sqlConf.get(s"default/$prop"),
@@ -81,7 +85,7 @@ object CassandraSourceUtil extends Logging {
     }
     conf.setAll(sqlConf -- SqlPropertyKeys)
     //Set all user properties while avoiding SCC Properties
-    conf.setAll(tableConf -- (AllSCCConfNames ++ AllSCCConfNames.map(_.toLowerCase(Locale.ROOT))))
+    conf.setAll(userOptions -- (AllSCCConfNames ++ AllSCCConfNames.map(_.toLowerCase(Locale.ROOT))))
     conf
   }
 

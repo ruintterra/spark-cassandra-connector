@@ -60,7 +60,7 @@ class CassandraCatalog extends CatalogPlugin
   val CassandraProperties = RelationParser.OPTION_CODECS.keySet().asScala
 
   var connector: CassandraConnector = _
-  var connectorConf: SparkConf = _
+  var consolidatedConf: SparkConf = _
   var catalogOptions: CaseInsensitiveStringMap = _
   //Something to distinguish this Catalog from others with different hosts
   var catalogName: String = _
@@ -69,8 +69,8 @@ class CassandraCatalog extends CatalogPlugin
   override def initialize(name: String, options: CaseInsensitiveStringMap): Unit = {
     catalogOptions = options
     val sparkConf = sparkSession.sparkContext.getConf
-    connectorConf = consolidateConfs(sparkConf, sparkSession.conf.getAll, name, tableConf = options.asScala.toMap)
-    connector = CassandraConnector(connectorConf)
+    consolidatedConf = consolidateConfs(sparkConf, sparkSession.conf.getAll, name, userOptions = options.asScala.toMap)
+    connector = CassandraConnector(consolidatedConf)
     catalogName = name
     nameIdentifier = connector.conf.contactInfo.endPointStr()
 
@@ -179,7 +179,7 @@ class CassandraCatalog extends CatalogPlugin
 
   override def loadTable(ident: Identifier): Table = {
     val tableMeta = getTableMetaData(connector, ident)
-    CassandraTable(sparkSession, connectorConf, connector, catalogName, tableMeta)
+    CassandraTable(sparkSession, catalogOptions, connector, catalogName, tableMeta)
   }
 
   /**

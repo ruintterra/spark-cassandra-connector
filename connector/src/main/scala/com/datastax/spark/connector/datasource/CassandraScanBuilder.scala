@@ -26,7 +26,6 @@ import scala.collection.JavaConverters._
 
 case class CassandraScanBuilder(
   session: SparkSession,
-  catalogConf: SparkConf,
   tableDef: TableDef,
   catalogName: String,
   options: CaseInsensitiveStringMap)
@@ -36,7 +35,7 @@ case class CassandraScanBuilder(
     with SupportsPushDownRequiredColumns
     with Logging {
 
-  val consolidatedConf = consolidateConfs(catalogConf, session.conf.getAll, catalogName, tableDef.keyspaceName, options.asScala.toMap)
+  val consolidatedConf = consolidateConfs(session.sparkContext.getConf, session.conf.getAll, catalogName, tableDef.keyspaceName, options.asScala.toMap)
   val connector = CassandraConnector(consolidatedConf)
   val readConf = ReadConf.fromSparkConf(consolidatedConf)
   val tableIsSolrIndexed =
