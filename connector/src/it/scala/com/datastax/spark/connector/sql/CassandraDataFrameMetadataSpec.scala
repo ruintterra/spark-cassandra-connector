@@ -292,7 +292,7 @@ class CassandraDataFrameMetadataSpec extends SparkCassandraITFlatSpecBase with D
   }
 
   it should "be able to write ttl" in {
-    sparkSession
+    spark
       .createDataFrame(Seq((-1,-1,-1,10000)))
       .toDF("k","c","v","ttlCol")
       .write
@@ -306,7 +306,7 @@ class CassandraDataFrameMetadataSpec extends SparkCassandraITFlatSpecBase with D
   }
 
   it should "be able to write ttl as first column" in {
-    sparkSession
+    spark
       .createDataFrame(Seq((10000,-1,-1,-2)))
       .toDF("ttlCol","k","c","v")
       .write
@@ -320,7 +320,7 @@ class CassandraDataFrameMetadataSpec extends SparkCassandraITFlatSpecBase with D
   }
 
   it should "be able to write ttl literals" in {
-     sparkSession
+     spark
       .createDataFrame(Seq((-500,-1,-1)))
       .toDF("k","c","v")
       .write
@@ -334,7 +334,7 @@ class CassandraDataFrameMetadataSpec extends SparkCassandraITFlatSpecBase with D
   }
 
   it should "be able to write ttl withTTL" in {
-    sparkSession
+    spark
       .createDataFrame(Seq((-50,-1,-1,10000)))
       .toDF("k","c","v","ttlCol")
       .write
@@ -348,7 +348,7 @@ class CassandraDataFrameMetadataSpec extends SparkCassandraITFlatSpecBase with D
   }
 
    it should "be able to write withWritetime" in {
-    sparkSession
+    spark
       .createDataFrame(Seq((-501,-2,-2)))
       .toDF("k","c","v")
       .write
@@ -362,7 +362,7 @@ class CassandraDataFrameMetadataSpec extends SparkCassandraITFlatSpecBase with D
   }
 
   it should "be able to write writeTime literals" in {
-    sparkSession
+    spark
       .createDataFrame(Seq((-51,-2,-2,10000)))
       .toDF("k","c","v","writetimeCol")
       .write
@@ -377,7 +377,7 @@ class CassandraDataFrameMetadataSpec extends SparkCassandraITFlatSpecBase with D
 
   it should "throw an exception when attempting to use withWriteTime or withTTL on non-Cassandra sources" in {
      intercept[IllegalArgumentException] {
-       sparkSession
+       spark
          .createDataFrame(Seq((-51,-2,-2,10000)))
          .toDF("k","c","v","writetimeCol")
          .write
@@ -386,7 +386,7 @@ class CassandraDataFrameMetadataSpec extends SparkCassandraITFlatSpecBase with D
          .save()
      }
     intercept[IllegalArgumentException] {
-       sparkSession
+       spark
          .createDataFrame(Seq((-51,-2,-2,10000)))
          .toDF("k","c","v","writetimeCol")
          .write
@@ -398,7 +398,7 @@ class CassandraDataFrameMetadataSpec extends SparkCassandraITFlatSpecBase with D
 
 
   it should "be able to write writetime" in {
-    sparkSession
+    spark
       .createDataFrame(Seq((-2,-2,-2,10000)))
       .toDF("k","c","v","writetimeCol")
       .write
@@ -412,20 +412,20 @@ class CassandraDataFrameMetadataSpec extends SparkCassandraITFlatSpecBase with D
   }
 
   "Spark SQL" should "be able to read TTL" in {
-    sparkSession.sql(s"SELECT sum(ttl(v)) FROM $ks.basic")
+    spark.sql(s"SELECT sum(ttl(v)) FROM $ks.basic")
       .collect()
       .head.getLong(0) should be > 1000L
   }
 
   it should "be able to read WRITETIME" in {
-    sparkSession.sql(s"SELECT sum(writetime(v)) FROM $ks.basic")
+    spark.sql(s"SELECT sum(writetime(v)) FROM $ks.basic")
       .collect()
       .head.getLong(0) should be > 1000L
   }
 
   it should "be able to read TTL from case sensitive column" in {
 
-    val request = sparkSession.sql(s"SELECT ttl(Value) FROM $ks.caseNames")
+    val request = spark.sql(s"SELECT ttl(Value) FROM $ks.caseNames")
     request.explain(true)
     request
       .collect()
@@ -433,18 +433,18 @@ class CassandraDataFrameMetadataSpec extends SparkCassandraITFlatSpecBase with D
   }
 
   it should "be able to read WRITETIME from case sensitive column" in {
-    sparkSession.sql(s"SELECT writetime(`Dot.Value`) FROM $ks.caseNames")
+    spark.sql(s"SELECT writetime(`Dot.Value`) FROM $ks.caseNames")
       .collect()
       .head.getLong(0) should be (10000L)
   }
 
 
   it should "throw an exception when calling writetime on more than one column" in intercept[AnalysisException] {
-    sparkSession.sql(s"SELECT sum(writetime(v, k)) FROM $ks.basic")
+    spark.sql(s"SELECT sum(writetime(v, k)) FROM $ks.basic")
   }
 
   it should "throw an exception when calling ttl on more than one column" in intercept[AnalysisException] {
-    sparkSession.sql(s"SELECT sum(ttl(v, k)) FROM $ks.basic")
+    spark.sql(s"SELECT sum(ttl(v, k)) FROM $ks.basic")
   }
 
 }

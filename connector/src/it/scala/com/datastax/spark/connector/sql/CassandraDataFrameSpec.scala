@@ -83,7 +83,7 @@ class CassandraDataFrameSpec extends SparkCassandraITFlatSpecBase with DefaultCl
   }
 
   "A DataFrame" should "be able to be created programmatically" in {
-    val df = sparkSession
+    val df = spark
       .read
       .format("org.apache.spark.sql.cassandra")
       .options(
@@ -98,7 +98,7 @@ class CassandraDataFrameSpec extends SparkCassandraITFlatSpecBase with DefaultCl
   }
 
   it should "be able to be saved programmatically" in {
-    val df = sparkSession
+    val df = spark
       .read
       .format("org.apache.spark.sql.cassandra")
       .options(
@@ -122,7 +122,7 @@ class CassandraDataFrameSpec extends SparkCassandraITFlatSpecBase with DefaultCl
       .mode("append")
       .save()
 
-    val dfCopy = sparkSession
+    val dfCopy = spark
       .read
       .format("org.apache.spark.sql.cassandra")
       .options(
@@ -152,7 +152,7 @@ class CassandraDataFrameSpec extends SparkCassandraITFlatSpecBase with DefaultCl
   }
 
   it should " be able to create a C* schema from a table" in {
-     val df = sparkSession
+     val df = spark
       .read
       .format("org.apache.spark.sql.cassandra")
       .options(
@@ -173,7 +173,7 @@ class CassandraDataFrameSpec extends SparkCassandraITFlatSpecBase with DefaultCl
   }
 
   it should " be able to create a customized C* schema from a table" in {
-    val df = sparkSession
+    val df = spark
       .read
       .format("org.apache.spark.sql.cassandra")
       .options(
@@ -196,7 +196,7 @@ class CassandraDataFrameSpec extends SparkCassandraITFlatSpecBase with DefaultCl
   }
 
   it should " provide useful messages when creating a table with columnName mismatches" in {
-    val df = sparkSession
+    val df = spark
       .read
       .format("org.apache.spark.sql.cassandra")
       .options(
@@ -221,7 +221,7 @@ class CassandraDataFrameSpec extends SparkCassandraITFlatSpecBase with DefaultCl
 
   it should " provide error out with a sensible message when a table can't be found" in {
     val exception = intercept[NoSuchTableException] {
-      val df = sparkSession
+      val df = spark
         .read
         .format("org.apache.spark.sql.cassandra")
         .options(
@@ -237,7 +237,7 @@ class CassandraDataFrameSpec extends SparkCassandraITFlatSpecBase with DefaultCl
 
   it should " provide useful suggestions if a table can't be found but a close match exists" in {
     val exception = intercept[NoSuchTableException] {
-      val df = sparkSession
+      val df = spark
         .read
         .format("org.apache.spark.sql.cassandra")
         .options(
@@ -253,7 +253,7 @@ class CassandraDataFrameSpec extends SparkCassandraITFlatSpecBase with DefaultCl
   }
 
   it should "read and write C* Tuple columns" in {
-    val df = sparkSession
+    val df = spark
       .read
       .format("org.apache.spark.sql.cassandra")
       .options(Map("table" -> "tuple_test1", "keyspace" -> ks, "cluster" -> "ClusterOne"))
@@ -275,7 +275,7 @@ class CassandraDataFrameSpec extends SparkCassandraITFlatSpecBase with DefaultCl
   }
 
   it should "read and write C* LocalDate columns" in skipIfProtocolVersionLT(DefaultProtocolVersion.V4){
-    val df = sparkSession
+    val df = spark
       .read
       .format("org.apache.spark.sql.cassandra")
       .options(Map("table" -> "date_test", "keyspace" -> ks, "cluster" -> "ClusterOne"))
@@ -302,7 +302,7 @@ class CassandraDataFrameSpec extends SparkCassandraITFlatSpecBase with DefaultCl
     val rdd = sc.parallelize(1 to 100).map( x =>
       RowWithV4Types(x, Byte.MinValue, Short.MinValue, java.sql.Date.valueOf("2016-08-03")))
 
-    val df = sparkSession.createDataFrame(rdd)
+    val df = spark.createDataFrame(rdd)
     df.createCassandraTable(ks, table)
 
     val tableColumns = eventually(
@@ -314,7 +314,7 @@ class CassandraDataFrameSpec extends SparkCassandraITFlatSpecBase with DefaultCl
 
     df.write.cassandraFormat(table, ks).mode("append").save()
 
-    val  rows = sparkSession
+    val  rows = spark
       .read
       .cassandraFormat(table, ks)
       .load()
@@ -330,9 +330,9 @@ class CassandraDataFrameSpec extends SparkCassandraITFlatSpecBase with DefaultCl
     val table = "sparkc429"
 
     val data = List(TestData("A", 1, 7))
-    val frame = sparkSession
+    val frame = spark
       .sqlContext
-      .createDataFrame(sparkSession.sparkContext.parallelize(data))
+      .createDataFrame(spark.sparkContext.parallelize(data))
 
     frame.createCassandraTable(
       ks,
@@ -346,7 +346,7 @@ class CassandraDataFrameSpec extends SparkCassandraITFlatSpecBase with DefaultCl
       .options(Map("table" -> table, "keyspace" -> ks))
       .save()
 
-    val loaded = sparkSession.sqlContext
+    val loaded = spark.sqlContext
       .read
       .format("org.apache.spark.sql.cassandra")
       .options(Map("table" -> table, "keyspace" -> ks))

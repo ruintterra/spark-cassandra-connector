@@ -17,13 +17,13 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
 
   it should "create a table with a partition key" in {
     createDefaultKs()
-    spark.sql(s"CREATE TABLE $defaultKs.$testTable (key Int, value STRING) PARTITIONED BY (key)")
+    spark.sql(s"CREATE TABLE $defaultKs.$testTable (key Int, value STRING) USING cassandra PARTITIONED BY (key)")
     getTable(defaultKs, testTable).getPartitionKey.get(0).getName.asInternal() should be ("key")
   }
 
   it should "create a table with a partition key and clustering key" in {
     createDefaultKs()
-    spark.sql(s"CREATE TABLE $defaultKs.$testTable (key Int, value STRING) PARTITIONED BY (key) TBLPROPERTIES (clustering_key='value.asc')")
+    spark.sql(s"CREATE TABLE $defaultKs.$testTable (key Int, value STRING) USING cassandra PARTITIONED BY (key) TBLPROPERTIES (clustering_key='value.asc')")
     val table = getTable(defaultKs, testTable)
     table.getPartitionKey.get(0).getName.asInternal() should be ("key")
     table.getClusteringColumns().asScala.map{ case (meta, order) => (meta.getName.asInternal(), order.name())}.head shouldBe (("value", "ASC"))
@@ -50,7 +50,7 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
       s"""CREATE TABLE $defaultKs.$testTable (
          |key_1 Int, key_2 Int, key_3 Int,
          |cc1 STRING, cc2 String, cc3 String,
-         |value String)
+         |value String) USING cassandra
          |PARTITIONED BY (key_1, key_2, key_3)
          |TBLPROPERTIES (${CassandraSourceUtil.optionsListToString(options)})""".stripMargin)
 
@@ -67,7 +67,7 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
       s"""CREATE TABLE $defaultKs.$testTable (
          |key_1 Int, key_2 Int, key_3 Int,
          |cc1 STRING, cc2 String, cc3 String,
-         |value String)
+         |value String) USING cassandra
          |PARTITIONED BY (key_1, key_2, key_3)
          |TBLPROPERTIES (clustering_key='cc1.asc, cc2.desc, cc3.asc')""".stripMargin)
     val table = getTable(defaultKs, testTable)
@@ -84,7 +84,7 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
         s"""CREATE TABLE $defaultKs.$testTable (
            |key_1 Int, key_2 Int, key_3 Int,
            |cc1 STRING, cc2 String, cc3 String,
-           |value String)
+           |value String) USING cassandra
            |TBLPROPERTIES (clustering_key='cc1.asc, cc2.desc, cc3.asc')""".stripMargin)
     }
     exception.getMessage should include("need partition keys")
@@ -97,7 +97,7 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
         s"""CREATE TABLE $defaultKs.$testTable (
            |key_1 Int, key_2 Int, key_3 Int,
            |cc1 STRING, cc2 String, cc3 String,
-           |value String)
+           |value String) USING cassandra
            |PARTITIONED BY (years(key_1), key_2, key_3)
            |TBLPROPERTIES (clustering_key='cc1.asc, cc2.desc, cc3.asc')""".stripMargin)
     }
@@ -109,7 +109,7 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
     val exception_1 = intercept[CassandraCatalogException]{
       spark.sql(
         s"""CREATE TABLE $defaultKs.$testTable
-           |(key Int, value STRING)
+           |(key Int, value STRING) USING cassandra
            |PARTITIONED BY (key)
            |TBLPROPERTIES (clustering_key='nonexistent')""".stripMargin)
     }
@@ -118,7 +118,7 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
     val exception_2 = intercept[CassandraCatalogException] {
       spark.sql(
         s"""CREATE TABLE $defaultKs.$testTable
-           |(key Int, value STRING)
+           |(key Int, value STRING) USING cassandra
            |TBLPROPERTIES (partition_key='nonexistent')""".stripMargin)
     }
     exception_2.getMessage should include ("partition key but it does not exist in the schema")
@@ -132,7 +132,7 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
         s"""CREATE TABLE $defaultKs.$testTable (
            |key_1 Int, key_2 Int, key_3 Int,
            |cc1 STRING, cc2 String, cc3 String,
-           |value String)
+           |value String) USING cassandra
            |PARTITIONED BY (key_1, key_2, key_3)
            |TBLPROPERTIES (clustering_key='cc1.reversi, cc2.desc, cc3.asc')""".stripMargin)
     }
@@ -143,7 +143,7 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
         s"""CREATE TABLE $defaultKs.$testTable (
            |key_1 Int, key_2 Int, key_3 Int,
            |cc1 STRING, cc2 String, cc3 String,
-           |value String)
+           |value String) USING cassandra
            |PARTITIONED BY (key_1, key_2, key_3)
            |TBLPROPERTIES (clustering_key='cc1.asc.desc, cc2.desc, cc3.asc')""".stripMargin)
     }
@@ -152,17 +152,17 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
 
   it should "throw a table already exists exception if the table already exists" in {
     createDefaultKs()
-    spark.sql(s"CREATE TABLE $defaultKs.$testTable (key Int, value STRING) PARTITIONED BY (key)")
+    spark.sql(s"CREATE TABLE $defaultKs.$testTable (key Int, value STRING) USING cassandra PARTITIONED BY (key)")
     intercept[TableAlreadyExistsException] {
-      spark.sql(s"CREATE TABLE $defaultKs.$testTable (key Int, value STRING) PARTITIONED BY (key)")
+      spark.sql(s"CREATE TABLE $defaultKs.$testTable (key Int, value STRING) USING cassandra PARTITIONED BY (key)")
     }
   }
 
   it should "list tables in a keyspace" in {
     createDefaultKs()
-    spark.sql(s"CREATE TABLE $defaultKs.${testTable}_1 (key Int, value STRING) PARTITIONED BY (key)")
-    spark.sql(s"CREATE TABLE $defaultKs.${testTable}_2 (key Int, value STRING) PARTITIONED BY (key)")
-    spark.sql(s"CREATE TABLE $defaultKs.${testTable}_3 (key Int, value STRING) PARTITIONED BY (key)")
+    spark.sql(s"CREATE TABLE $defaultKs.${testTable}_1 (key Int, value STRING) USING cassandra PARTITIONED BY (key)")
+    spark.sql(s"CREATE TABLE $defaultKs.${testTable}_2 (key Int, value STRING) USING cassandra PARTITIONED BY (key)")
+    spark.sql(s"CREATE TABLE $defaultKs.${testTable}_3 (key Int, value STRING) USING cassandra PARTITIONED BY (key)")
     val results = spark.sql(s"SHOW TABLES from $defaultKs").collect()
 
     val expected = getMetadata()
@@ -186,7 +186,7 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
       s"""CREATE TABLE $defaultKs.$testTable (
          |key_1 Int, key_2 Int, key_3 Int,
          |cc1 STRING, cc2 String, cc3 String,
-         |value String)
+         |value String) USING cassandra
          |PARTITIONED BY (key_1, key_2, key_3)
          |TBLPROPERTIES (clustering_key='cc1.asc, cc2.desc, cc3.asc')""".stripMargin)
     val rows = spark.sql(s"DESCRIBE EXTENDED $defaultKs.$testTable").collect()
@@ -212,7 +212,7 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
       s"""CREATE TABLE $defaultKs.$testTable (
          |key_1 Int, key_2 Int, key_3 Int,
          |cc1 STRING, cc2 String, cc3 String,
-         |value String)
+         |value String) USING cassandra
          |PARTITIONED BY (key_1, key_2, key_3)
          |TBLPROPERTIES (clustering_key='cc1.asc, cc2.desc, cc3.asc')""".stripMargin)
     val rows = spark.sql(s"SHOW TBLPROPERTIES $defaultKs.$testTable").collect()
@@ -228,7 +228,7 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
       s"""CREATE TABLE $defaultKs.$testTable (
          |key_1 Int, key_2 Int, key_3 Int,
          |cc1 STRING, cc2 String, cc3 String,
-         |value String)
+         |value String) USING cassandra
          |PARTITIONED BY (key_1, key_2, key_3)
          |TBLPROPERTIES (clustering_key='cc1.asc, cc2.desc, cc3.asc')""".stripMargin)
 
@@ -249,7 +249,7 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
       s"""CREATE TABLE $defaultKs.$testTable (
          |key_1 Int, key_2 Int, key_3 Int,
          |cc1 STRING, cc2 String, cc3 String,
-         |value String)
+         |value String) USING cassandra
          |PARTITIONED BY (key_1, key_2, key_3)
          |TBLPROPERTIES (clustering_key='cc1.asc, cc2.desc, cc3.asc')""".stripMargin)
 
@@ -275,7 +275,7 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
       s"""CREATE TABLE $defaultKs.$testTable (
          |key_1 Int, key_2 Int, key_3 Int,
          |cc1 STRING, cc2 String, cc3 String,
-         |value String)
+         |value String) USING cassandra
          |PARTITIONED BY (key_1, key_2, key_3)
          |TBLPROPERTIES (clustering_key='cc1.asc, cc2.desc, cc3.asc')""".stripMargin)
 
@@ -294,7 +294,7 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
       s"""CREATE TABLE $defaultKs.$testTable (
          |key_1 Int, key_2 Int, key_3 Int,
          |cc1 STRING, cc2 String, cc3 String,
-         |value String)
+         |value String) USING cassandra
          |PARTITIONED BY (key_1, key_2, key_3)
          |TBLPROPERTIES (clustering_key='cc1.asc, cc2.desc, cc3.asc')""".stripMargin)
 
@@ -313,7 +313,7 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
       s"""CREATE TABLE $defaultKs.$testTable (
          |key_1 Int, key_2 Int, key_3 Int,
          |cc1 STRING, cc2 String, cc3 String,
-         |value String)
+         |value String) USING cassandra
          |PARTITIONED BY (key_1, key_2, key_3)
          |TBLPROPERTIES (clustering_key='cc1.asc, cc2.desc, cc3.asc')""".stripMargin)
 

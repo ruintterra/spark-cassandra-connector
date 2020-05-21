@@ -39,7 +39,7 @@ class CassandraStreamingSinkSpec extends SparkCassandraITFlatSpecBase with Defau
 
     val checkpointDir = Files.createTempDirectory("ks")
 
-    val source = sparkSession
+    val source = spark
       .readStream
       .format("org.apache.spark.sql.datastax.test.monotonic")
       .load()
@@ -72,7 +72,7 @@ class CassandraStreamingSinkSpec extends SparkCassandraITFlatSpecBase with Defau
 
     val checkpointDir = Files.createTempDirectory("ks")
 
-    val source = sparkSession
+    val source = spark
       .readStream
       .format("org.apache.spark.sql.datastax.test.empty")
       .load()

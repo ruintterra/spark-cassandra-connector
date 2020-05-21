@@ -256,7 +256,7 @@ case class CassandraScanBuilder(
     */
   private def isConvertableToJoinWithCassandra(predicates: AnalyzedPredicates): Boolean = {
     val inClauseConversionThreshold = consolidatedConf.getLong(InClauseToJoinWithTableConversionThreshold.name, InClauseToJoinWithTableConversionThreshold.default)
-    if (inClauseConversionThreshold == 0L) {
+    if (inClauseConversionThreshold == 0L || !pushdownEnabled) {
       false
     } else {
       val partitionFilters = eqAndInColumnFilters(tableDef.partitionKey, predicates)

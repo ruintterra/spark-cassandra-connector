@@ -5,7 +5,7 @@ import com.datastax.spark.connector.cql.{CassandraConnector, TableDef}
 import com.datastax.spark.connector.datasource.CassandraInJoin
 import com.datastax.spark.connector.{SparkCassandraITFlatSpecBase, _}
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.DataFrame
+import org.apache.spark.sql.{DataFrame, SparkSession}
 import org.apache.spark.sql.SaveMode._
 import org.apache.spark.sql.cassandra.CassandraSourceRelation.InClauseToJoinWithTableConversionThreshold
 import org.apache.spark.sql.cassandra.{AnalyzedPredicates, CassandraPredicateRules, CassandraSourceRelation}
@@ -83,23 +83,8 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with DefaultC
     }
 
     setupCassandraCatalog
+    spark.conf.set("pushdown", pushDown)
   }
-
-  private def withConfig(params: (String, Any)*)(testFun: => Unit): Unit = {
-    val runtimeConf = spark.conf.getAll
-    params.foreach { case (k, v) => spark.conf.set(k, v.toString) }
-    try {
-      testFun
-    } finally {
-      params.map(_._1).map(spark.conf.unset)
-      runtimeConf.foreach{
-        case (k, v) if spark.conf.isModifiable(k) =>  spark.conf.set(k, v)
-        case _ =>
-      }
-    }
-  }
-
-  private def withConfig(key: String, value: Any)(testFun: => Unit): Unit = withConfig((key, value)){testFun}
 
   def cassandraTable(tableRef: TableRef) : DataFrame = {
     spark.sql(s"SELECT * From ${tableRef.keyspace}.${tableRef.table}")
@@ -218,7 +203,7 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with DefaultC
     val df = spark
       .read
       .format("org.apache.spark.sql.cassandra")
-      .options(Map("keyspace" -> ks, "table" -> "test1"))
+      .options(Map("keyspace" -> ks, "table" -> "test1", "pushdown" -> "true"))
       .load().filter("a=1 and b=2 and c=1 and e=1")
 
     val qp = df.queryExecution.executedPlan.toString
@@ -235,6 +220,7 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with DefaultC
       .options(Map(
         "keyspace" -> ks,
         "table" -> "test1",
+        "pushdown" -> "true",
         CassandraSourceRelation.AdditionalCassandraPushDownRulesParam.name -> "com.datastax.spark.connector.sql.PushdownNothing,com.datastax.spark.connector.sql.PushdownEverything,com.datastax.spark.connector.sql.PushdownEqualsOnly"))
       .load()
       .filter("a=1 and b=2 and c=1 and e=1")
@@ -257,6 +243,8 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with DefaultC
       CassandraSourceRelation.AdditionalCassandraPushDownRulesParam.name,
       "com.datastax.spark.connector.sql.PushdownUsesConf") {
 
+    SparkSession.setActiveSession(spark)
+
     val df = spark
       .read
       .format("org.apache.spark.sql.cassandra")
@@ -268,7 +256,7 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with DefaultC
     val df2 = spark
       .read
       .format("org.apache.spark.sql.cassandra")
-      .options(Map("keyspace" -> ks, "table" -> "test1"))
+      .options(Map("keyspace" -> ks, "table" -> "test1", "pushdown" -> "true"))
       .load().filter("g=1 and h=1")
 
     intercept[IllegalAccessException] {
@@ -281,7 +269,7 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with DefaultC
 
   private def assertOnCassandraInJoinPresence(df: DataFrame): Unit = {
     if (pushDown)
-      withClue(s"Given RDD does not contain CassandraInJoin in it's predecessors.\n${df.queryExecution.sparkPlan.toString()}") {
+      withClue(s"Given Dataframe plan does not contain CassandraInJoin in it's predecessors.\n${df.queryExecution.sparkPlan.toString()}") {
         df.queryExecution.executedPlan.collectLeaves().collectFirst{
           case a@BatchScanExec(_, _: CassandraInJoin) => a
         } shouldBe defined
@@ -291,7 +279,7 @@ class CassandraDataSourceSpec extends SparkCassandraITFlatSpecBase with DefaultC
   }
 
   private def assertOnAbsenceOfCassandraInJoin(df: DataFrame): Unit =
-    withClue(s"Given RDD contains CassandraJoinRDD in it's predecessors.\n${df.queryExecution.sparkPlan.toString()}") {
+    withClue(s"Given Dataframe plan contains CassandraInJoin in it's predecessors.\n${df.queryExecution.sparkPlan.toString()}") {
       df.queryExecution.executedPlan.collectLeaves().collectFirst{
         case a@BatchScanExec(_, _: CassandraInJoin) => a
       } shouldBe empty

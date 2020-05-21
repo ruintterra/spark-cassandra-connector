@@ -42,7 +42,7 @@ private[rdd] trait AbstractCassandraJoin[L, R] {
   val requestsPerSecondRateLimiter = JoinHelper.requestsPerSecondRateLimiter(readConf)
   val maybeRateLimit: (Row => Row) = JoinHelper.maybeRateLimit(readConf)
 
-  val joinColumnNames = JoinHelper.joinColumnNames(joinColumns, tableDef)
+  lazy val joinColumnNames = JoinHelper.joinColumnNames(joinColumns, tableDef)
 
   lazy val rowWriter = manualRowWriter match {
     case Some(_rowWriter) => _rowWriter
@@ -86,6 +86,9 @@ private[rdd] trait AbstractCassandraJoin[L, R] {
       missingPartitionKeys.isEmpty,
       s"Can't join without the full partition key. Missing: [ $missingPartitionKeys ]"
     )
+
+    //Run To check for conflicting where clauses
+    JoinHelper.getJoinQueryString(tableDef, joinColumnNames, CqlQueryParts(selectedColumnRefs, where, limit, clusteringOrder))
 
     joinColumnNames.foreach(checkSingleColumn)
     joinColumnNames

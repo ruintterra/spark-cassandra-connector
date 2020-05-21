@@ -217,7 +217,7 @@ class CassandraCatalog extends CatalogPlugin
       providedPartitionKeyNames
     } else {
       tableProps
-        .getOrElse(PartitionKey, throw new CassandraCatalogException(s"Cassandra Tables need partition keys defined in property $PartitionKey or with 'PARTITIONED BY (columns)"))
+        .getOrElse(PartitionKey, throw new CassandraCatalogException(s"Cassandra Tables need partition keys defined in property $PartitionKey or with 'PARTITIONED BY columns"))
         .split(",")
         .map(_.replaceAll("\\s", ""))
     }

@@ -313,7 +313,7 @@ abstract class AbstractTypeTest[TestType: ClassTag, DriverType <: AnyRef : Class
       "table" -> s"${typeName}_dataframe"
     )
 
-    val readDF = sparkSession
+    val readDF = spark
       .read
       .format(cassandraFormat)
       .options(readTableOptions)

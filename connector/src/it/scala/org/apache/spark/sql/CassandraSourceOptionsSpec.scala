@@ -31,7 +31,7 @@ class CassandraSourceOptionsSpec extends SparkCassandraITFlatSpecBase with Defau
   }
 
   "Source options" should "be case insensitive" in {
-    val df = sparkSession
+    val df = spark
       .read
       .cassandraFormat("colors", ks).option(ReadConf.ReadsPerSecParam.name.toUpperCase(), "9001")
       .load()
@@ -43,10 +43,10 @@ class CassandraSourceOptionsSpec extends SparkCassandraITFlatSpecBase with Defau
 
   it should "be configurable in Spark SQL" in {
 
-    sparkSession.conf.set(s"spark.sql.catalog.cassandra", classOf[CassandraCatalog].getCanonicalName)
-    sparkSession.conf.set(SQLConf.DEFAULT_CATALOG.key, "cassandra")
-    sparkSession.sql("SET spark.cassandra.input.readsPerSec=9001")
-    val df = sparkSession.sql(s"SELECT * FROM $ks.colors")
+    spark.conf.set(s"spark.sql.catalog.cassandra", classOf[CassandraCatalog].getCanonicalName)
+    spark.conf.set(SQLConf.DEFAULT_CATALOG.key, "cassandra")
+    spark.sql("SET spark.cassandra.input.readsPerSec=9001")
+    val df = spark.sql(s"SELECT * FROM $ks.colors")
     val scan = findCassandraScan(df.queryExecution.sparkPlan).get
     scan.readConf.readsPerSec.get should be (9001)
   }

@@ -40,11 +40,13 @@ object JoinHelper extends Logging {
     queryParts: CqlQueryParts) = {
 
     val whereClauses = queryParts.whereClause.predicates.flatMap(CqlWhereParser.parse)
+    val joinColumnNames = joinColumns.map(_.columnName)
+
     val joinColumnPredicates = whereClauses.collect {
-      case EqPredicate(c, _) if joinColumns.contains(c) => c
-      case InPredicate(c) if joinColumns.contains(c) => c
-      case InListPredicate(c, _) if joinColumns.contains(c) => c
-      case RangePredicate(c, _, _) if joinColumns.contains(c) => c
+      case EqPredicate(c, _) if joinColumnNames.contains(c) => c
+      case InPredicate(c) if joinColumnNames.contains(c) => c
+      case InListPredicate(c, _) if joinColumnNames.contains(c) => c
+      case RangePredicate(c, _, _) if joinColumnNames.contains(c) => c
     }.toSet
 
     require(
@@ -54,7 +56,6 @@ object JoinHelper extends Logging {
          |Columns in both: ${joinColumnPredicates.mkString(", ")}""".stripMargin
     )
 
-    val joinColumnNames = joinColumns.map(_.columnName)
 
     logDebug("Generating Single Key Query Prepared Statement String")
     logDebug(s"SelectedColumns : ${queryParts.selectedColumnRefs} -- JoinColumnNames : $joinColumnNames")

@@ -8,7 +8,7 @@ class CassandraCatalogTableWriteSpec extends CassandraCatalogSpecBase {
 
   def setupBasicTable(): Unit = {
     createDefaultKs(1)
-    spark.sql(s"CREATE TABLE $defaultKs.$testTable (key Int, value STRING) PARTITIONED BY (key)")
+    spark.sql(s"CREATE TABLE $defaultKs.$testTable (key Int, value STRING) USING cassandra PARTITIONED BY (key)")
     val ps = conn.withSessionDo(_.prepare(s"""INSERT INTO $defaultKs."$testTable" (key, value) VALUES (?, ?)"""))
     awaitAll {
       for (i <- 0 to 100) yield {
@@ -25,7 +25,7 @@ class CassandraCatalogTableWriteSpec extends CassandraCatalogSpecBase {
     val outputTable = "output_empty"
     setupBasicTable()
     spark.sql(
-      s"""CREATE TABLE $defaultKs.$outputTable PARTITIONED BY (key)
+      s"""CREATE TABLE $defaultKs.$outputTable USING cassandra PARTITIONED BY (key)
          |AS SELECT * FROM $defaultKs.$testTable""".stripMargin)
     val results = spark.sql(s"""SELECT * FROM $defaultKs.$outputTable""").collect()
     results.length shouldBe (101)

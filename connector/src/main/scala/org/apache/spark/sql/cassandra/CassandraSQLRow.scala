@@ -3,7 +3,7 @@ package org.apache.spark.sql.cassandra
 import java.math.BigInteger
 import java.net.InetAddress
 import java.sql.Timestamp
-import java.time.Instant
+import java.time.{Instant, LocalTime}
 import java.util.{Date, UUID}
 
 import com.datastax.dse.driver.api.core.data.geometry.Geometry
@@ -109,6 +109,7 @@ object CassandraSQLRow {
       case udt: UDTValue => UDTValue(udt.columnNames, udt.columnValues.map(toUnsafeSqlType))
       case tupleValue: TupleValue => TupleValue(tupleValue.values.map(toUnsafeSqlType): _*)
       case dateRange: DateRange => dateRange.toString
+      case time: LocalTime => time.toNanoOfDay: java.lang.Long
       case instant: Instant => java.sql.Timestamp.from(instant)
       case _ => value.asInstanceOf[AnyRef]
     }

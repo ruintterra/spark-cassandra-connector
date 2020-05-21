@@ -9,7 +9,7 @@ class CassandraCatalogTableReadSpec extends CassandraCatalogSpecBase {
 
   def setupBasicTable(): Unit = {
     createDefaultKs()
-    spark.sql(s"CREATE TABLE $defaultKs.$testTable (key Int, value STRING) PARTITIONED BY (key)")
+    spark.sql(s"CREATE TABLE $defaultKs.$testTable (key Int, value STRING) USING cassandra PARTITIONED BY (key)")
     val ps = conn.withSessionDo(_.prepare(s"""INSERT INTO $defaultKs."$testTable" (key, value) VALUES (?, ?)"""))
     awaitAll {
       for (i <- 0 to 100) yield {
@@ -24,7 +24,7 @@ class CassandraCatalogTableReadSpec extends CassandraCatalogSpecBase {
 
   it should "read from an empty table" in {
     createDefaultKs()
-    spark.sql(s"CREATE TABLE $defaultKs.$testTable (key Int, value STRING) PARTITIONED BY (key)")
+    spark.sql(s"CREATE TABLE $defaultKs.$testTable (key Int, value STRING) USING cassandra PARTITIONED BY (key)")
     spark.sql(s"SELECT * FROM $defaultKs.$testTable").collect() shouldBe empty
   }
 
