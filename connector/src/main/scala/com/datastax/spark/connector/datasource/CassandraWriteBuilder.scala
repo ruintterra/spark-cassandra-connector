@@ -6,7 +6,7 @@ import com.datastax.spark.connector.cql.{CassandraConnector, TableDef}
 import com.datastax.spark.connector.datasource.CassandraSourceUtil.consolidateConfs
 import com.datastax.spark.connector.writer.{TTLOption, TimestampOption, WriteConf}
 import org.apache.spark.SparkConf
-import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.{AnalysisException, SparkSession}
 import org.apache.spark.sql.cassandra.CassandraSourceRelation.{TTLParam, WriteTimeParam}
 import org.apache.spark.sql.connector.write._
 import org.apache.spark.sql.connector.write.streaming.{StreamingDataWriterFactory, StreamingWrite}
@@ -32,6 +32,17 @@ case class CassandraWriteBuilder(
     options.asScala.toMap)
 
   val initialWriteConf = WriteConf.fromSparkConf(consolidatedConf)
+
+  val primaryKeyNames = tableDef.primaryKey.map(_.columnName).toSet
+  val inputColumnNames = inputSchema.map(_.name).toSet
+
+  val missingPrimaryKeyColumns = primaryKeyNames -- inputColumnNames
+
+  if (missingPrimaryKeyColumns.nonEmpty) {
+    throw new CassandraCatalogException(
+      s"""Attempting to write to C* Table but missing
+         |primary key columns: ${missingPrimaryKeyColumns.mkString("[",",","]")}""".stripMargin)
+  }
 
   private val ttlWriteOption =
     consolidatedConf.getOption(TTLParam.name)

@@ -7,7 +7,6 @@ import scala.collection.JavaConverters._
 class CassandraCatalogNamespaceSpec extends CassandraCatalogSpecBase {
 
   "A Cassandra Catalog Namespace Support" should "initialize successfully" in {
-
     spark.sessionState.catalogManager.currentCatalog.name() should include("Catalog cassandra")
   }
 
@@ -102,6 +101,4 @@ class CassandraCatalogNamespaceSpec extends CassandraCatalogSpecBase {
     spark.sql(s"DROP DATABASE $defaultKs")
     waitForKeyspaceToExist(defaultKs, false)
   }
-  // Drop (needs TableCatalog)
-
 }

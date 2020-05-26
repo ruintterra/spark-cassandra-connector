@@ -45,7 +45,6 @@ class CassandraCatalogTableReadSpec extends CassandraCatalogSpecBase {
       .collectFirst{ case exchange: Exchange => exchange } shouldBe empty
 
     //Because partitioning does not support this aggregate there should be a shuffle
-    spark.sql(s"SELECT DISTINCT value FROM $defaultKs.$testTable").explain
     spark.sql(s"SELECT DISTINCT value FROM $defaultKs.$testTable")
       .queryExecution
       .executedPlan
@@ -62,6 +61,14 @@ class CassandraCatalogTableReadSpec extends CassandraCatalogSpecBase {
 
     reader.get.isInstanceOf[CassandraCountPartitionReader] should be (true)
     request.collect()(0).get(0) should be (101)
+  }
+
+  it should "handle the programmtic api" in {
+    setupBasicTable()
+    val results = spark.read.table(s"$defaultKs.$testTable").collect()
+
+    val expected = for (i <- 0 to 100) yield (i, i.toString)
+    results.map( row => (row.getInt(0), row.getString(1))) should contain theSameElementsAs(expected)
   }
 
 }

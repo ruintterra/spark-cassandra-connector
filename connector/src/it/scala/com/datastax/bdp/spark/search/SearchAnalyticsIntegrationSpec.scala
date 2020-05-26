@@ -132,16 +132,13 @@ class SearchAnalyticsIntegrationSpec extends SparkCassandraITFlatSpecBase with D
   }
 
   implicit class DFFunctions(df: DataFrame) {
-
     /**
       * Attempt to walk back dependency tree for the RDD and find
       * the CassandraTableScanRDD. This should only work correctly if
       * we are in a series of 1 to 1 mappings back to the source.
       */
     def getUnderlyingCqlWhereClause(): CqlWhereClause = {
-      df.queryExecution.sparkPlan.collectLeaves().collectFirst {
-        case BatchScanExec(_, scan: CassandraScan) => scan.cqlQueryParts.whereClause
-      }.getOrElse(fail("No Cassandra Scan Found in Plan"))
+      getCassandraScan(df.queryExecution.sparkPlan).cqlQueryParts.whereClause
     }
   }
 

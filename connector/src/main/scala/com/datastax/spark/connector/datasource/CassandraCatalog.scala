@@ -73,7 +73,6 @@ class CassandraCatalog extends CatalogPlugin
     connector = CassandraConnector(consolidatedConf)
     catalogName = name
     nameIdentifier = connector.conf.contactInfo.endPointStr()
-
   }
 
   override def name(): String = s"Catalog $catalogName For Cassandra Cluster At $nameIdentifier " //TODO add identifier here
@@ -156,9 +155,8 @@ class CassandraCatalog extends CatalogPlugin
   override def loadNamespaceMetadata(namespace: Array[String]): java.util.Map[String, String] = {
     val ksMetadata = getKeyspaceMeta(connector, namespace)
 
-    (Map[String, String](
-      DurableWrites -> ksMetadata.isDurableWrites.toString,
-    ) ++ ksMetadata.getReplication.asScala).asJava
+    (ksMetadata.getReplication.asScala + (DurableWrites -> ksMetadata.isDurableWrites.toString))
+      .asJava
   }
 
   override def dropNamespace(namespace: Array[String]): Boolean = {
@@ -278,7 +276,6 @@ class CassandraCatalog extends CatalogPlugin
       case (createStmt, (key, value)) => createStmt.withOption(key, parseProperty(value)).asInstanceOf[CreateTable]
     }
 
-    //TODO may have to add a debounce wait
     connector.withSessionDo(_.execute(createTableWithProperties.asCql()))
 
     loadTable(ident)

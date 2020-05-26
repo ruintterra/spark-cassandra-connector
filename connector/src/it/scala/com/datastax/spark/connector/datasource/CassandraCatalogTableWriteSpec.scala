@@ -1,6 +1,6 @@
 package com.datastax.spark.connector.datasource
 
-import org.apache.spark.sql.execution.exchange.Exchange
+import org.apache.spark.sql.functions._
 
 class CassandraCatalogTableWriteSpec extends CassandraCatalogSpecBase {
 
@@ -29,6 +29,31 @@ class CassandraCatalogTableWriteSpec extends CassandraCatalogSpecBase {
          |AS SELECT * FROM $defaultKs.$testTable""".stripMargin)
     val results = spark.sql(s"""SELECT * FROM $defaultKs.$outputTable""").collect()
     results.length shouldBe (101)
+  }
+
+  it should "support a vanilla insert" in {
+    createDefaultKs(1)
+    spark.sql(
+      s"""CREATE TABLE $defaultKs.vanilla (key Int, value String) USING cassandra PARTITIONED BY (key)""".stripMargin)
+
+    spark.range(0, 100)
+      .withColumnRenamed("id", "key")
+      .withColumn("value", col("key").cast("string"))
+      .writeTo(s"$defaultKs.vanilla")
+      .append()
+    val results = spark.sql(s"""SELECT * FROM $defaultKs.vanilla""").collect()
+    results.length shouldBe (100)
+  }
+
+  it should "report missing primary key columns" in intercept[CassandraCatalogException]{
+    createDefaultKs(1)
+    spark.sql(
+      s"""CREATE TABLE $defaultKs.vanilla (key Int, value String) USING cassandra PARTITIONED BY (key)""".stripMargin)
+
+    spark.range(0, 100)
+      .withColumn("value", col("id").cast("string"))
+      .writeTo(s"$defaultKs.vanilla")
+      .append()
   }
 
 }

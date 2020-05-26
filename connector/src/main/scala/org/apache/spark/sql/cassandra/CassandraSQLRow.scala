@@ -76,7 +76,6 @@ object CassandraSQLRow {
       case duration: java.time.Duration => duration.toMillis.asInstanceOf[AnyRef]
       case duration: CqlDuration => TypeCodecs.DURATION.format(duration)
       case instant: java.time.Instant => new java.sql.Timestamp(instant.toEpochMilli)
-      case str: String => str
       case bigInteger: BigInteger => Decimal(bigInteger.toString)
       case bigDecimal: java.math.BigDecimal => Decimal(bigDecimal)
       case inetAddress: InetAddress => inetAddress.getHostAddress

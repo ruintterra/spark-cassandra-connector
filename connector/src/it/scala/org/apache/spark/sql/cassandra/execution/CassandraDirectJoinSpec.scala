@@ -2,7 +2,6 @@ package org.apache.spark.sql.cassandra.execution
 
 import java.sql.Timestamp
 import java.time.Instant
-import java.util.concurrent.CompletableFuture
 
 import com.datastax.oss.driver.api.core.DefaultProtocolVersion._
 import com.datastax.spark.connector.cluster.DefaultCluster
@@ -563,7 +562,7 @@ class CassandraDirectJoinSpec extends SparkCassandraITFlatSpecBase with DefaultC
       .groupBy(right("pops")).avg("v")
   }
 
-  it should " work with in a join tree with literals and other expressions" in compareDirectOnDirectOff{ spark =>
+  it should " work with a join tree with literals and other expressions" in compareDirectOnDirectOff{ spark =>
 
     val right =
       spark

@@ -29,7 +29,6 @@ class InternalRowWriter(
   override val columnNames = selectedColumns.map(_.columnName)
   val typeForSchemaIndex = schema.map(_.dataType).zipWithIndex.map(x => (x._2, x._1)).toMap
   private val columns = columnNames.map(table.columnByName)
-  private val columnTypes = columns.map(_.columnType)
   private val schemaRequestedIndexes = {
     val indexedSchema = schema.map(_.name).zipWithIndex.toMap
     selectedColumns.map(column => indexedSchema(column.selectedAs))
@@ -37,10 +36,6 @@ class InternalRowWriter(
 
   private val dataTypes = schemaRequestedIndexes.map(index => typeForSchemaIndex(index))
 
-  /*
-  Todo Is this Needed? With Unsafe Rows we had to be more careful about internal representations but
-  I'm not sure we need this here.
-  */
   private val convertersToScala = dataTypes.map(CatalystTypeConverters.createToScalaConverter)
 
   private val convertersToCassandra = columns.map(_.columnType.converterToCassandra)

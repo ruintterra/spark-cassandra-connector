@@ -54,7 +54,10 @@ trait SparkCassandraITSpecBase
   }
   final def sparkConf = defaultConf
 
-  lazy val spark = SparkSession.builder().config(sparkConf).withExtensions(new CassandraSparkExtensions).getOrCreate().newSession()
+  lazy val spark = SparkSession.builder()
+    .config(sparkConf)
+    .withExtensions(new CassandraSparkExtensions).getOrCreate().newSession()
+
   lazy val sc = spark.sparkContext
 
   val originalProps = sys.props.clone()

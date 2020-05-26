@@ -77,6 +77,22 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
       (Seq(("cc1", "ASC"), ("cc2", "DESC"), ("cc3", "ASC")))
   }
 
+  it should "create a table with multiple partition keys and clustering keys without sort order" in {
+    createDefaultKs()
+    spark.sql(
+      s"""CREATE TABLE $defaultKs.$testTable (
+         |key_1 Int, key_2 Int, key_3 Int,
+         |cc1 STRING, cc2 String, cc3 String,
+         |value String) USING cassandra
+         |PARTITIONED BY (key_1, key_2, key_3)
+         |TBLPROPERTIES (clustering_key='cc1, cc2, cc3')""".stripMargin)
+    val table = getTable(defaultKs, testTable)
+    table.getPartitionKey.asScala.map(_.getName.asInternal()) should contain theSameElementsAs
+      (Seq("key_1", "key_2", "key_3"))
+    table.getClusteringColumns().asScala.map{ case (meta, order) => (meta.getName.asInternal(), order.name())} should contain theSameElementsAs
+      (Seq(("cc1", "ASC"), ("cc2", "ASC"), ("cc3", "ASC")))
+  }
+
   it should "throw a sensible error when trying to create a table without a partition key" in {
     createDefaultKs()
     val exception = intercept[CassandraCatalogException] {

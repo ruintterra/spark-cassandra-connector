@@ -58,11 +58,6 @@ abstract class CassandraPartitionReaderBase
   val partition: CassandraPartition[Any, _ <: Token[Any]]
 
   val tokenRanges = partition.tokenRanges
-  /*
-  Iterator flatMap trick flattens the iterator-of-iterator structure into a single iterator.
-  flatMap on iterator is lazy, therefore a query for the next token range is executed not earlier
-  than all of the rows returned by the previous query have been consumed.
-  */
   val rowIterator = getIterator()
   var lastRow: InternalRow = InternalRow()
 
@@ -103,6 +98,11 @@ abstract class CassandraPartitionReaderBase
 
   override def readSchema(): StructType = schema
 
+  /*
+  Iterator flatMap trick flattens the iterator-of-iterator structure into a single iterator.
+  flatMap on iterator is lazy, therefore a query for the next token range is executed not earlier
+  than all of the rows returned by the previous query have been consumed.
+  */
   protected def getIterator(): Iterator[InternalRow] = {
     tokenRanges.iterator.flatMap { range =>
       val scanResult = ScanHelper.fetchTokenRange(scanner, tableDef, queryParts, range, readConf.consistencyLevel, readConf.fetchSizeInRows)

@@ -158,8 +158,9 @@ case class CassandraScanBuilder(
   override def build(): Scan = {
     val currentPushdown = AnalyzedPredicates(filtersForCassandra.toSet, filtersForSpark.toSet)
     if (isConvertableToJoinWithCassandra(currentPushdown)){
-      logInfo(s"Number of keys in 'IN' clauses exceeds ${InClauseToJoinWithTableConversionThreshold.name}, " +
-        s"converting to joinWithCassandraTable.")
+      logInfo(
+        s"""Number of keys in 'IN' clauses exceeds ${InClauseToJoinWithTableConversionThreshold.name},
+           |converting to joinWithCassandraTable.""".stripMargin)
       //Remove all Primary Join Restricted Filters
       val primaryKeyFilters = eqAndInColumnFilters(tableDef.primaryKey, currentPushdown)
       filtersForCassandra = (filtersForCassandra.toSet -- primaryKeyFilters).toArray
@@ -168,11 +169,13 @@ case class CassandraScanBuilder(
       val inClauses = primaryKeyFilters.collect {
         case EqualTo(attribute, value) => In(attribute, Array(value))
         case in: In => in
-        case other => throw new IllegalAccessException(s"In Clause to Join Conversion Failed, Illegal predicate on primary key $other")
+        case other =>
+          throw new IllegalAccessException(
+            s"""In Clause to Join Conversion Failed,
+               |Illegal predicate on primary key $other""".stripMargin)
       }
 
       CassandraInJoin(session, connector, tableDef, inClauses, getQueryParts(), readSchema, readConf, consolidatedConf)
-
     } else {
       CassandraScan(session, connector, tableDef, getQueryParts(), readSchema, readConf, consolidatedConf)
     }
@@ -199,7 +202,7 @@ case class CassandraScanBuilder(
   }
 
   /** Construct where clause from pushdown filters */
-  def cqlWhereClause = pushedFilters.foldLeft(CqlWhereClause.empty) { case (where, filter) => {
+  def cqlWhereClause = filtersForCassandra.foldLeft(CqlWhereClause.empty) { case (where, filter) => {
       val (predicate, values) = filterToCqlAndValue(filter)
       val newClause = CqlWhereClause(Seq(predicate), values)
       where and newClause
