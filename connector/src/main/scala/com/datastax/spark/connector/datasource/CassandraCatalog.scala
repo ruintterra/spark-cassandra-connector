@@ -21,7 +21,7 @@ import org.apache.spark.sql.connector.catalog._
 import org.apache.spark.sql.connector.expressions.Transform
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
-import org.apache.spark.{SparkConf, SparkEnv}
+import org.apache.spark.{SparkConf}
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
@@ -44,20 +44,32 @@ class CassandraCatalog extends CatalogPlugin
 
   lazy val sparkSession = SparkSession.active
 
-  val ReplicationClass = "class"
-  val ReplicationFactor = "replication_factor"
-  val DurableWrites = "durable_writes"
-  val NetworkTopologyStrategy = "networktopologystrategy"
-  val SimpleStrategy = "simplestrategy"
-  val IgnoredReplicationOptions = Seq(ReplicationClass, DurableWrites)
-  val PartitionKey = "partition_key"
-  val ClusteringKey = "clustering_key"
+  private val ReplicationClass = "class"
+  private val ReplicationFactor = "replication_factor"
+  private val DurableWrites = "durable_writes"
+  private val NetworkTopologyStrategy = "networktopologystrategy"
+  private val SimpleStrategy = "simplestrategy"
 
   /*
-  This is accessing a driver internal class, but I feel like it's safer than blacklisting Spark Specific properties.
+    * Using an exclusion list here because CQL Syntax uses all other options for a NetworkToplogyStrategy
+    * keyspace to represent Datacenter names. We cannot enumerate all valid datacenter names so we have
+    * to forbid options reserved and passed directly by Spark
+    */
+  private val IgnoredReplicationOptions = Seq(
+    ReplicationClass,
+    DurableWrites,
+    SupportsNamespaces.PROP_OWNER,
+    SupportsNamespaces.PROP_LOCATION,
+    SupportsNamespaces.PROP_COMMENT)
+
+  private val PartitionKey = "partition_key"
+  private val ClusteringKey = "clustering_key"
+
+  /*
+  This is accessing a driver internal class, but I feel like it's safer than forbidding Spark Specific properties.
   Hopefully this will also automatically then allow us to pass new C* compatible options by just updating the driver.
    */
-  val CassandraProperties = RelationParser.OPTION_CODECS.keySet().asScala
+  private val CassandraProperties = RelationParser.OPTION_CODECS.keySet().asScala
 
   var connector: CassandraConnector = _
   var consolidatedConf: SparkConf = _
@@ -94,8 +106,6 @@ class CassandraCatalog extends CatalogPlugin
     getKeyspaceMeta(connector, namespace) // Thorows no such namespace if namespace is not found
     Array.empty[Array[String]]
   }
-
-
 
   override def createNamespace(namespace: Array[String], metadata: java.util.Map[String, String]): Unit = {
     val ksMeta = metadata.asScala

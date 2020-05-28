@@ -281,8 +281,6 @@ case class CassandraScanBuilder(
     }.toMap
     columns.flatMap(column => predicatesByColumnName.get(column.columnName))
   }
-
-
 }
 
 case class CassandraScan(
@@ -322,8 +320,8 @@ case class CassandraScan(
 
   override def description(): String = {
     s"""Cassandra Scan: ${tableDef.keyspaceName}.${tableDef.tableName}
-    | Server Side Filters: ${cqlQueryParts.whereClause}
-    | Columns: ${cqlQueryParts.selectedColumnRefs.mkString("[", ",", "]")}""".stripMargin
+       | - Cassandra Filters: ${cqlQueryParts.whereClause}
+       | - Requested Columns: ${cqlQueryParts.selectedColumnRefs.mkString("[", ",", "]")}""".stripMargin
   }
 }
 

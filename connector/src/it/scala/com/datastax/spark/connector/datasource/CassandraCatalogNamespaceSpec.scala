@@ -39,6 +39,14 @@ class CassandraCatalogNamespaceSpec extends CassandraCatalogSpecBase {
     spark.sql(s"DESCRIBE DATABASE EXTENDED $defaultKs").show
   }
 
+  it should "be able to create a new keyspace with NTS" in {
+    dropKeyspace(defaultKs)
+    waitForKeyspaceToExist(defaultKs, false)
+    spark.sql(s"CREATE DATABASE IF NOT EXISTS $defaultKs WITH DBPROPERTIES (class='NetworkTopologyStrategy',cassandra='1')")
+    waitForKeyspaceToExist(defaultKs, true)
+    spark.sql(s"DESCRIBE DATABASE EXTENDED $defaultKs").show
+  }
+
   it should "give a sensible error when trying to create a keyspace without a replication class" in {
     dropKeyspace(defaultKs)
     waitForKeyspaceToExist(defaultKs, false)
