@@ -13,6 +13,7 @@ import com.datastax.oss.driver.internal.core.metadata.schema.parsing.RelationPar
 import com.datastax.spark.connector.cql.CassandraConnector
 import com.datastax.spark.connector.datasource.CassandraSourceUtil._
 import com.datastax.spark.connector.util.{Logging, NameTools}
+import org.apache.spark.SparkConf
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.catalyst.analysis.{NamespaceAlreadyExistsException, NoSuchNamespaceException, NoSuchTableException, TableAlreadyExistsException}
 import org.apache.spark.sql.connector.catalog.NamespaceChange.{RemoveProperty, SetProperty}
@@ -21,7 +22,6 @@ import org.apache.spark.sql.connector.catalog._
 import org.apache.spark.sql.connector.expressions.Transform
 import org.apache.spark.sql.types.StructType
 import org.apache.spark.sql.util.CaseInsensitiveStringMap
-import org.apache.spark.{SparkConf}
 
 import scala.collection.JavaConverters._
 import scala.collection.mutable
@@ -103,28 +103,49 @@ class CassandraCatalog extends CatalogPlugin
     * throw a NoSuchNamespaceException
     */
   override def listNamespaces(namespace: Array[String]): Array[Array[String]] = {
-    getKeyspaceMeta(connector, namespace) // Thorows no such namespace if namespace is not found
+    getKeyspaceMeta(connector, namespace) // Throws no such namespace if namespace is not found
     Array.empty[Array[String]]
   }
 
+  /**
+    * Builds a Cassandra Keyspace based off the metadata provided by SparkSQL.
+    * There are currently only two available replication strategies and their syntax mimics CQL
+    *
+    * "class" -> "NetworkTopologyStrategy", "dcName" -> "rfNum"
+    *
+    * All additional NTS properties will be considered datacenter Names (except durable_writes and replication_factor)
+    *
+    * or
+    *
+    * "class" -> "SimpleStrategy", "replication_factor" -> "rfNum"
+    *
+    * In either case
+    *
+    * "durable_writes" -> "true|false"
+    *
+    * is also allowed to disable the commitlog (see Cassandra Docs defaults to true)
+    */
   override def createNamespace(namespace: Array[String], metadata: java.util.Map[String, String]): Unit = {
     val ksMeta = metadata.asScala
     checkNamespace(namespace)
+
     if (getMetadata(connector).getKeyspace(fromInternal(namespace.head)).asScala.isDefined) throw new NamespaceAlreadyExistsException(s"${namespace.head} already exists")
+    val createStmt = SchemaBuilder.createKeyspace(namespace.head)
+    val replicationClass = ksMeta.getOrElse(ReplicationClass, throw new CassandraCatalogException(s"Creating a keyspace requires a $ReplicationClass DBOption for the replication strategy class"))
+    val createWithReplication = replicationClass.toLowerCase(Locale.ROOT) match {
+      case SimpleStrategy =>
+        val replicationFactor = ksMeta.getOrElse(ReplicationFactor,
+          throw new CassandraCatalogException(s"Need a $ReplicationFactor option with SimpleStrategy"))
+        createStmt.withSimpleStrategy(replicationFactor.toInt)
+      case NetworkTopologyStrategy =>
+        val datacenters = (ksMeta -- IgnoredReplicationOptions).map(pair => (pair._1, pair._2.toInt: java.lang.Integer))
+        createStmt.withNetworkTopologyStrategy(datacenters.asJava)
+      case other => throw new CassandraCatalogException(s"Unknown keyspace replication strategy $other")
+    }
+
+    val finalCreateStmt = createWithReplication.withDurableWrites(ksMeta.getOrElse(DurableWrites, "True").toBoolean)
+
     connector.withSessionDo { session =>
-      val createStmt = SchemaBuilder.createKeyspace(namespace.head)
-      val replicationClass = ksMeta.getOrElse(ReplicationClass, throw new CassandraCatalogException(s"Creating a keyspace requires a $ReplicationClass DBOption for the replication strategy class"))
-      val createWithReplication = replicationClass.toLowerCase(Locale.ROOT) match {
-        case SimpleStrategy =>
-          val replicationFactor = ksMeta.getOrElse(ReplicationFactor,
-            throw new CassandraCatalogException(s"Need a $ReplicationFactor option with SimpleStrategy"))
-          createStmt.withSimpleStrategy(replicationFactor.toInt)
-        case NetworkTopologyStrategy =>
-          val datacenters = (ksMeta -- IgnoredReplicationOptions).map(pair => (pair._1, pair._2.toInt: java.lang.Integer))
-          createStmt.withNetworkTopologyStrategy(datacenters.asJava)
-        case other => throw new CassandraCatalogException(s"Unknown keyspace replication strategy $other")
-      }
-      val finalCreateStmt = createWithReplication.withDurableWrites(ksMeta.getOrElse(DurableWrites, "True").toBoolean)
       session.execute(finalCreateStmt.asCql())
     }
   }
@@ -132,18 +153,18 @@ class CassandraCatalog extends CatalogPlugin
   override def alterNamespace(namespace: Array[String], changes: NamespaceChange*): Unit = {
     checkNamespace(namespace)
 
-    val ksMeta: mutable.Map[String, String] = changes.foldRight(loadNamespaceMetadata(namespace).asScala) {
-      case (setProperty: SetProperty, metadata: mutable.Map[String, String]) =>
+    val ksMeta: mutable.Map[String, String] = changes.foldLeft(loadNamespaceMetadata(namespace).asScala) {
+      case (metadata: mutable.Map[String, String], setProperty: SetProperty) =>
         metadata + (setProperty.property() -> setProperty.value)
-      case (removeProperty: RemoveProperty, metadata: mutable.Map[String, String]) =>
+      case (metadata: mutable.Map[String, String], removeProperty: RemoveProperty) =>
         metadata - removeProperty.property()
-      case (other, _) => throw new CassandraCatalogException(s"Unable to handle alter namespace operation: ${other.getClass.getSimpleName}")
+      case (_, other) => throw new CassandraCatalogException(s"Unable to handle alter namespace operation: ${other.getClass.getSimpleName}")
     }
 
     val alterStart = SchemaBuilder.alterKeyspace(namespace.head)
     val alterWithDurable = alterStart.withDurableWrites(ksMeta.getOrElse(DurableWrites, "True").toBoolean)
     val replicationClass = ksMeta
-      .getOrElse(ReplicationClass, throw new CassandraCatalogException(s"Creating a keyspace requires a $ReplicationClass option"))
+      .getOrElse(ReplicationClass, throw new CassandraCatalogException(s"Altering a keyspace requires a $ReplicationClass option"))
       .split("\\.")
       .last
     val alterWithReplication = replicationClass.toLowerCase(Locale.ROOT) match {
@@ -171,17 +192,16 @@ class CassandraCatalog extends CatalogPlugin
 
   override def dropNamespace(namespace: Array[String]): Boolean = {
     checkNamespace(namespace)
-    val keyspace = getMetadata(connector).getKeyspace(fromInternal(namespace.head)).asScala
-      .getOrElse(throw nameSpaceMissing(getMetadata(connector), namespace))
-    val dropResult = connector.withSessionDo(session =>
-      session.execute(SchemaBuilder.dropKeyspace(keyspace.getName).asCql()))
+    val keyspace = getKeyspaceMeta(connector, namespace)
+    val dropResult = connector.withSessionDo(session => session.execute(SchemaBuilder.dropKeyspace(keyspace.getName).asCql()))
     dropResult.wasApplied()
   }
 
   override def listTables(namespace: Array[String]): Array[Identifier] = {
     getKeyspaceMeta(connector, namespace)
       .getTables.asScala
-      .map { case (tableName, _) => Identifier.of(namespace, tableName.asInternal()) }
+      .keys
+      .map { case tableName => Identifier.of(namespace, tableName.asInternal()) }
       .toArray
   }
 
@@ -221,13 +241,15 @@ class CassandraCatalog extends CatalogPlugin
 
     val providedPartitionKeyNames = partitions.map(_.references().head.fieldNames().head)
 
-    val partitionKeys = if (providedPartitionKeyNames.nonEmpty) {
-      providedPartitionKeyNames
-    } else {
-      tableProps
-        .getOrElse(PartitionKey, throw new CassandraCatalogException(s"Cassandra Tables need partition keys defined in property $PartitionKey or with 'PARTITIONED BY columns"))
-        .split(",")
-        .map(_.replaceAll("\\s", ""))
+    val partitionKeys = providedPartitionKeyNames match {
+      case partitionKeyNames: Array[String] if partitionKeyNames.nonEmpty && tableProps.contains(PartitionKey) =>
+        throw new CassandraCatalogException(s"Table property $PartitionKey is specified as well as PARTITIONED BY clause, please use just one")
+      case partitionKeyNames: Array[String] if partitionKeyNames.nonEmpty =>
+        partitionKeyNames
+      case _: Array[String] if tableProps.contains(PartitionKey) =>
+        tableProps(PartitionKey).split(",").map(_.replaceAll("\\s", ""))
+      case _ =>
+        throw new CassandraCatalogException(s"Cassandra Tables need partition keys defined in property $PartitionKey or with 'PARTITIONED BY columns")
     }
 
     val partitionKeyNames = partitionKeys.map(fromInternal)
@@ -235,15 +257,15 @@ class CassandraCatalog extends CatalogPlugin
     val clusteringKeyNames = tableProps
       .get(ClusteringKey).toSeq
       .flatMap(value => value.split(",").map(_.replaceAll("\\s", "").split("\\.")))
-      .map { case arr =>
-        if (arr.length != 1 && arr.length != 2)
-          throw new CassandraCatalogException(s"Unable to parse clustering column ${arr.mkString(".")}, too many components")
-        if (arr.length == 2) { //Ordering Passed
-          val clusteringOrder = Try(ClusteringOrder.valueOf(arr(1).toUpperCase())).getOrElse(throw new CassandraCatalogException(s"Invalid clustering order found in ${arr.mkString(".")}, must be ASC or DESC or blank"))
-          (fromInternal(arr(0)), clusteringOrder)
-        } else { //No Ordering Passed
-          (fromInternal(arr(0)), ClusteringOrder.ASC)
-        }
+      .map {
+        case Array(name, order) =>
+          val clusteringOrder = Try(ClusteringOrder.valueOf(order.toUpperCase()))
+            .getOrElse(throw new CassandraCatalogException(s"Invalid clustering order found in ${name}.${order}, must be ASC or DESC or blank"))
+          (fromInternal(name), clusteringOrder)
+        case Array(name) =>
+          (fromInternal(name), ClusteringOrder.ASC)
+        case invalid =>
+          throw new CassandraCatalogException(s"Unable to parse clustering column ${invalid}, too many components")
       }
 
     val protocolVersion = connector.withSessionDo(_.getContext.getProtocolVersion)
@@ -252,6 +274,7 @@ class CassandraCatalog extends CatalogPlugin
       (fromInternal(sparkField.name), sparkSqlToJavaDriverType(sparkField.dataType, protocolVersion))
     ).toMap
 
+    checkNamespace(ident.namespace())
     val namespace = fromInternal(ident.namespace.head)
     val table = fromInternal(ident.name())
 
@@ -264,8 +287,10 @@ class CassandraCatalog extends CatalogPlugin
     }.asInstanceOf[CreateTable]
 
     val createTableWithClustering = clusteringKeyNames.foldLeft(createTableWithPk) { (createTable, ckName) =>
-      val dataType = columnToType.getOrElse(ckName._1,
-        throw new CassandraCatalogException(s"$ckName was defined as a clustering key but it does not exist in the schema ${schema.fieldNames.mkString(",")}"))
+      val dataType =
+        columnToType.get(fromInternal(ckName._1.asInternal().toLowerCase(Locale.ROOT))) //Check for lower Cased column name as well
+          .orElse(columnToType.get(ckName._1))
+          .getOrElse(throw new CassandraCatalogException(s"$ckName was defined as a clustering key but it does not exist in the schema ${schema.fieldNames.mkString(",")}"))
       createTable
         .withClusteringColumn(ckName._1, dataType)
         .withClusteringOrder(ckName._1, ckName._2)
@@ -274,14 +299,13 @@ class CassandraCatalog extends CatalogPlugin
 
     val normalColumns = schema.fieldNames.map(fromInternal).toSet -- (clusteringKeyNames.map(_._1) ++ partitionKeyNames)
 
-    val createTableWithColumns = normalColumns.foldRight(createTableWithClustering) { (colName, createTable) =>
+    val createTableWithColumns = normalColumns.foldLeft(createTableWithClustering) { (createTable, colName) =>
       val dataType = columnToType(colName)
       createTable.withColumn(colName, dataType)
     }
 
-    val userProperties = tableProps.filter{ case (key, _) => CassandraProperties.contains(key) }
-    val unusedProperties = tableProps -- userProperties.keys
-    logDebug(s"Ignoring non-cassandra properties for table $unusedProperties")
+    val (userProperties, unusedProperties) = tableProps.partition { case (key, _) => CassandraProperties.contains(key) }
+    logInfo(s"Ignoring non-cassandra properties for table $unusedProperties")
     val createTableWithProperties = userProperties.foldLeft(createTableWithColumns) {
       case (createStmt, (key, value)) => createStmt.withOption(key, parseProperty(value)).asInstanceOf[CreateTable]
     }
@@ -327,14 +351,16 @@ class CassandraCatalog extends CatalogPlugin
 
     //Check for unsupported table changes
     changes.foreach {
-      case add: AddColumn =>
-      case del: DeleteColumn =>
-      case setProp: TableChange.SetProperty =>
+      case _: AddColumn | _: DeleteColumn | _: TableChange.SetProperty =>
       case other: TableChange => throw new CassandraCatalogException(s"Cassandra Catalog does not support Alter operation: ${other.getClass.getSimpleName}")
     }
 
     val propertiesToAdd = changes.collect { case setProperty: TableChange.SetProperty =>
-      setProperty
+      if (CassandraProperties.contains(setProperty.property())) {
+        setProperty
+      } else {
+        throw new CassandraCatalogException(s"Unable to set unknown Cassandra Property ${setProperty.property()}")
+      }
     }
     val columnsToRemove = changes.collect { case remove: DeleteColumn =>
       checkRemoveNormalColumn(tableMetadata, remove.fieldNames())
@@ -348,13 +374,15 @@ class CassandraCatalog extends CatalogPlugin
       val setOptionsStatement = propertiesToAdd.foldLeft(
         SchemaBuilder.alterTable(keyspace, table).asInstanceOf[AlterTableWithOptionsEnd]) { case (alter, prop) =>
         alter.withOption(prop.property(), parseProperty(prop.value()))
-      }
-      connector.withSessionDo(_.execute(setOptionsStatement.asCql()))
+      }.asCql()
+      logDebug(s"Executing Set Table Properties: $setOptionsStatement")
+      connector.withSessionDo(_.execute(setOptionsStatement))
     }
 
     if (columnsToRemove.nonEmpty) {
-      val dropColumnsStatement = SchemaBuilder.alterTable(keyspace, table).dropColumns(columnsToRemove: _*)
-      connector.withSessionDo(_.execute(dropColumnsStatement.asCql()))
+      val dropColumnsStatement = SchemaBuilder.alterTable(keyspace, table).dropColumns(columnsToRemove: _*).asCql
+      logDebug(s"Executing Drop Table Columns: $dropColumnsStatement")
+      connector.withSessionDo(_.execute(dropColumnsStatement))
     }
 
     if (columnsToAdd.nonEmpty) {
@@ -362,10 +390,12 @@ class CassandraCatalog extends CatalogPlugin
         SchemaBuilder.alterTable(keyspace, table).asInstanceOf[AlterTableAddColumn]
       ) { case ((colName, dataType), alterBuilder) =>
         alterBuilder.addColumn(colName, dataType)
-      }.asInstanceOf[AlterTableAddColumnEnd]
-      connector.withSessionDo(_.execute(addColumnStatement.asCql()))
+      }.asInstanceOf[AlterTableAddColumnEnd].asCql()
+      logDebug(s"Executing Add Table Columns: $addColumnStatement")
+      connector.withSessionDo(_.execute(addColumnStatement))
     }
 
+    logDebug(s"Table Alteration Complete")
     loadTable(ident)
   }
 
@@ -396,7 +426,7 @@ object CassandraCatalog {
     checkNamespace(namespace)
     val tableMeta = getMetadata(connector)
       .getKeyspace(fromInternal(namespace.head)).asScala
-      .getOrElse(throw nameSpaceMissing(getMetadata(connector), namespace))
+      .getOrElse(throw namespaceMissing(getMetadata(connector), namespace))
       .getTable(fromInternal(ident.name)).asScala
       .getOrElse(throw tableMissing(getMetadata(connector), namespace, ident.name()))
     tableMeta
@@ -408,7 +438,7 @@ object CassandraCatalog {
     getMetadata(connector)
       .getKeyspace(fromInternal(namespace.head))
       .asScala
-      .getOrElse(throw nameSpaceMissing(getMetadata(connector), namespace))
+      .getOrElse(throw namespaceMissing(getMetadata(connector), namespace))
   }
 
   /**
@@ -421,13 +451,14 @@ object CassandraCatalog {
   }
 
   //Currently these exceptions are not always propagated to the user so Suggestions will not appear for all executions
-  def nameSpaceMissing(metadata: Metadata, namespace: Array[String]): NoSuchNamespaceException = {
+  def namespaceMissing(metadata: Metadata, namespace: Array[String]): NoSuchNamespaceException = {
     val suggestions = NameTools.getSuggestions(metadata, namespace.head)
     val error = NameTools.getErrorString(namespace.head, None, suggestions)
     new NoSuchNamespaceException(error)
   }
 
   private def getMetadata(connector: CassandraConnector) = {
+    require(connector != null, "CassandraCatalog not initialized properly, No Connection to Cassandra Available")
     connector.withSessionDo(_.getMetadata)
   }
 

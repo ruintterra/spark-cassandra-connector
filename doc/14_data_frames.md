@@ -47,7 +47,7 @@ To set up a catalog put the following configuration into your SparkSession confi
 
 ```spark.sql.catalog.casscatalog``` to  ```com.datastax.spark.connector.datasource.CassandraCatalog```
 
-This will set up an identifier of "anyname" to point to the catalog for the default Cassandra Cluster
+This will set up an identifier of "casscatalog" to point to the catalog for the default Cassandra Cluster
 For information on configuring Cassandra Catalogs see [documentation on Connecting](1_connecting.md)
 
 Because the Catalog connects directly to the Cluster's underlying schema it will allow access to all
@@ -173,9 +173,9 @@ df.writeTo("casscatalog.ksname.testTable")
 
 The connector will automatically pushdown all valid predicates to Cassandra. The
 Datasource will also automatically only select columns from Cassandra which are required
-to complete the query. This can be monitiored with the explain command.
+to complete the query. This can be monitored with the explain command.
 
-For example in the follow query only the `value` column is required and the where clause
+For example in the following query only the `value` column is required and the where clause
 is automatically pushed down
 ```scala
 spark.sql("SELECT value FROM mycatalog.ks.tab WHERE key = 1").explain
@@ -215,7 +215,7 @@ query Cassandra that way.
 Through Cassandra Spark Extensions special functions are added to SparkSQL.
 
 * writetime(col) - If the column represents an actual C* column this will be replaced
-with the write of that column as in cql.
+with the writetime of that column as in cql.
 
 * ttl(col) - Similar to writetime, this will replace a valid C* column reference with a
 ttl value instead.
@@ -226,7 +226,7 @@ Read Example
 SELECT TTL(v) as t, WRITETIME(t) FROM casscatalog.ksname.testTable WHERE k = -1"
 ```
 
-For writing there are specfic write options which can be used to assign WriteTime and TTL
+For writing there are specific write options which can be used to assign WriteTime and TTL
 ttl. These values can be set as either a literal value or a reference to a named column.
 
 Example using another column as ttl
@@ -267,7 +267,7 @@ format string now only needs to be specified as `cassandra` without the full cla
 These methods are still useful if you need to express certain options only for a specific
 read or write, and not for the entire catalog.
 
-We using these methods you are required to set an option for `table` and `keyspace`
+When using these methods you are required to set an option for `table` and `keyspace`
 
 Example Read
 ```scala

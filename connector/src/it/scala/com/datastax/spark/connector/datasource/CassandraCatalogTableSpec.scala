@@ -2,8 +2,7 @@ package com.datastax.spark.connector.datasource
 
 import com.datastax.oss.driver.api.core.CqlIdentifier.fromInternal
 import org.apache.spark.SparkException
-import org.apache.spark.sql.AnalysisException
-import org.apache.spark.sql.catalyst.analysis.{NoSuchNamespaceException, NoSuchTableException, TableAlreadyExistsException}
+import org.apache.spark.sql.catalyst.analysis.{NoSuchNamespaceException, TableAlreadyExistsException}
 
 import scala.collection.JavaConverters._
 
@@ -18,15 +17,21 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
   it should "create a table with a partition key" in {
     createDefaultKs()
     spark.sql(s"CREATE TABLE $defaultKs.$testTable (key Int, value STRING) USING cassandra PARTITIONED BY (key)")
-    getTable(defaultKs, testTable).getPartitionKey.get(0).getName.asInternal() should be ("key")
+    getTable(defaultKs, testTable).getPartitionKey.get(0).getName.asInternal() should be("key")
+  }
+
+  it should "create a table using the partition key prop" in {
+    createDefaultKs()
+    spark.sql(s"CREATE TABLE $defaultKs.$testTable (key Int, value STRING) USING cassandra TBLPROPERTIES (partition_key='key')")
+    getTable(defaultKs, testTable).getPartitionKey.get(0).getName.asInternal() should be("key")
   }
 
   it should "create a table with a partition key and clustering key" in {
     createDefaultKs()
     spark.sql(s"CREATE TABLE $defaultKs.$testTable (key Int, value STRING) USING cassandra PARTITIONED BY (key) TBLPROPERTIES (clustering_key='value.asc')")
     val table = getTable(defaultKs, testTable)
-    table.getPartitionKey.get(0).getName.asInternal() should be ("key")
-    table.getClusteringColumns().asScala.map{ case (meta, order) => (meta.getName.asInternal(), order.name())}.head shouldBe (("value", "ASC"))
+    table.getPartitionKey.get(0).getName.asInternal() should be("key")
+    table.getClusteringColumns().asScala.map { case (meta, order) => (meta.getName.asInternal(), order.name()) }.head shouldBe (("value", "ASC"))
   }
 
   it should "create a table with options" in {
@@ -299,9 +304,11 @@ class CassandraCatalogTableSpec extends CassandraCatalogSpecBase {
       s"""ALTER TABLE $defaultKs.$testTable ADD COLUMNS (newCol INT) """.stripMargin
     )
 
-    getTable(defaultKs, testTable)
-      .getColumn(fromInternal("newCol"))
-      .get().getName.asInternal() shouldBe ("newCol")
+    val expectedColumns = Seq("key_1", "key_2", "key_3", "cc1", "cc2", "cc3", "value", "newCol")
+
+    val table = getTable(defaultKs, testTable)
+
+    expectedColumns.foreach(col => table.getColumn(fromInternal(col)).isPresent should be(true))
   }
 
   it should "alter remove columns" in {
