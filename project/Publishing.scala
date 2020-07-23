@@ -10,15 +10,16 @@ import scala.sys.process._
 object Publishing extends sbt.librarymanagement.DependencyBuilders {
 
   val Version: String = {
-    sys.props.get("publish.version").getOrElse("git describe --tags" !!).stripLineEnd.stripPrefix("v")
+    "3.0.0.1"
+    // sys.props.get("publish.version").getOrElse("git describe --tags" !!).stripLineEnd.stripPrefix("v")
   }
 
   val altReleaseDeploymentRepository = sys.props.get("publish.repository.name")
   val altReleaseDeploymentLocation = sys.props.get("publish.repository.location")
 
-  val nexus = "https://oss.sonatype.org/"
-  val SonatypeSnapshots = Some("snapshots" at nexus + "content/repositories/snapshots")
-  val SonatypeReleases = Some("releases" at nexus + "service/local/staging/deploy/maven2")
+  val nexus = "https://nexus.intterra.ru/"
+  val SonatypeSnapshots = Some("snapshots" at nexus + "repository/maven-snapshots/")
+  val SonatypeReleases = Some("releases" at nexus + "repository/maven-releases/")
 
   val Repository: Option[Resolver] = {
     (altReleaseDeploymentRepository, altReleaseDeploymentLocation) match {
@@ -46,7 +47,7 @@ object Publishing extends sbt.librarymanagement.DependencyBuilders {
 
     val defaultCredentialsLocation = Some(Credentials(Path.userHome / ".ivy2" / ".credentials"))
 
-    val personalCred = Some(Credentials(Path.userHome / ".sbt" / "credentials"))
+    val personalCred = Some(Credentials(Path.userHome / ".sbt" / ".credentials"))
     val deployCred = Some(Credentials(Path.userHome / ".sbt" / "credentials.deploy"))
 
     println(s"Reading credentials from $credFile")

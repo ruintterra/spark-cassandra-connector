@@ -10,10 +10,11 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hive.metastore.FileMetadataHandler;
 import org.apache.hadoop.hive.metastore.RawStore;
+import org.apache.hadoop.hive.metastore.TableType;
 import org.apache.hadoop.hive.metastore.Warehouse;
 import org.apache.hadoop.hive.metastore.api.*;
-import org.apache.hadoop.hive.metastore.model.*;
 import org.apache.hadoop.hive.metastore.partition.spec.PartitionSpecProxy;
 import org.apache.hadoop.hive.ql.optimizer.ppr.PartitionExpressionForMetastore;
 import org.apache.hive.common.util.HiveVersionInfo;
@@ -24,6 +25,7 @@ import org.slf4j.LoggerFactory;
 
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.ByteBuffer;
 import java.util.*;
 import java.util.Map.Entry;
 import java.util.regex.Pattern;
@@ -418,6 +420,16 @@ public class CassandraHiveMetaStore implements RawStore
         return results;
     }
 
+    @Override
+    public List<String> getTables(String dbName, String pattern, TableType tableType) throws MetaException {
+        return null;
+    }
+
+    @Override
+    public List<TableMeta> getTableMeta(String dbNames, String tableNames, List<String> tableTypes) throws MetaException {
+        return null;
+    }
+
     public List<String> getAllTables(String databaseName) throws MetaException
     {
         log.debug("in getAllTables");
@@ -707,6 +719,11 @@ public class CassandraHiveMetaStore implements RawStore
         return getPartitionNames(partitions);
     }
 
+    @Override
+    public PartitionValuesResponse listPartitionValues(String db_name, String tbl_name, List<FieldSchema> cols, boolean applyDistinct, String filter, boolean ascending, List<FieldSchema> order, long maxParts) throws MetaException {
+        return null;
+    }
+
     private List<String> getPartitionNames(List<Partition> partitions)
     {
         List<String> results = new ArrayList<>();
@@ -822,6 +839,11 @@ public class CassandraHiveMetaStore implements RawStore
     }
 
     @Override
+    public boolean isActiveTransaction() {
+        return false;
+    }
+
+    @Override
     public PrincipalPrivilegeSet getColumnPrivilegeSet(String arg0,
             String arg1, String arg2, String arg3, String arg4,
             List<String> arg5) throws InvalidObjectException, MetaException
@@ -912,6 +934,16 @@ public class CassandraHiveMetaStore implements RawStore
             log.error("failed to getPartitionsByExpr", e);
         }
         return false;
+    }
+
+    @Override
+    public int getNumPartitionsByFilter(String dbName, String tblName, String filter) throws MetaException, NoSuchObjectException {
+        return 0;
+    }
+
+    @Override
+    public int getNumPartitionsByExpr(String dbName, String tblName, byte[] expr) throws MetaException, NoSuchObjectException {
+        return 0;
     }
 
     private enum Operator {
@@ -1059,10 +1091,15 @@ public class CassandraHiveMetaStore implements RawStore
     }
 
     @Override
-    public List<MTablePrivilege> listAllTableGrants(String arg0,
-            PrincipalType arg1, String arg2, String arg3)
+    public List<HiveObjectPrivilege> listAllTableGrants(String arg0,
+                                                        PrincipalType arg1, String arg2, String arg3)
     {
         // TODO Auto-generated method stub
+        return null;
+    }
+
+    @Override
+    public List<HiveObjectPrivilege> listPrincipalPartitionGrants(String principalName, PrincipalType principalType, String dbName, String tableName, List<String> partValues, String partName) {
         return null;
     }
 
@@ -1090,44 +1127,32 @@ public class CassandraHiveMetaStore implements RawStore
     }
 
     @Override
-    public List<MDBPrivilege> listPrincipalDBGrants(String arg0,
-            PrincipalType arg1, String arg2)
+    public List<HiveObjectPrivilege> listPrincipalDBGrants(String arg0,
+                                                           PrincipalType arg1, String arg2)
     {
         // TODO Auto-generated method stub
         return null;
     }
 
     @Override
-    public List<MGlobalPrivilege> listPrincipalGlobalGrants(String arg0,
-            PrincipalType arg1)
+    public List<HiveObjectPrivilege> listPrincipalGlobalGrants(String arg0,
+                                                               PrincipalType arg1)
     {
         // TODO Auto-generated method stub
         return null;
     }
 
     @Override
-    public List<MPartitionColumnPrivilege> listPrincipalPartitionColumnGrants(
-            String arg0, PrincipalType arg1, String arg2, String arg3,
-            String arg4, String arg5)
-    {
-        // TODO Auto-generated method stub
-        return null;
-    }
-
-    @Override
-    public List<MPartitionPrivilege> listPrincipalPartitionGrants(String arg0,
-            PrincipalType arg1, String arg2, String arg3, String arg4)
-    {
-        // TODO Auto-generated method stub
-        return null;
-    }
-
-    @Override
-    public List<MTableColumnPrivilege> listPrincipalTableColumnGrants(
+    public List<HiveObjectPrivilege> listPrincipalTableColumnGrants(
             String arg0, PrincipalType arg1, String arg2, String arg3,
             String arg4)
     {
         // TODO Auto-generated method stub
+        return null;
+    }
+
+    @Override
+    public List<HiveObjectPrivilege> listPrincipalPartitionColumnGrants(String principalName, PrincipalType principalType, String dbName, String tableName, List<String> partValues, String partName, String columnName) {
         return null;
     }
 
@@ -1139,13 +1164,18 @@ public class CassandraHiveMetaStore implements RawStore
     }
 
     @Override
-    public List<MRoleMap> listRoles(String arg0, PrincipalType arg1)
+    public List<Role> listRoles(String arg0, PrincipalType arg1)
     {
         // TODO Auto-generated method stub
         return null;
     }
 
-    @Override public List<MRoleMap> listRoleMembers(String s)
+    @Override
+    public List<RolePrincipalGrant> listRolesWithGrants(String principalName, PrincipalType principalType) {
+        return null;
+    }
+
+    @Override public List<RolePrincipalGrant> listRoleMembers(String s)
     {
         return null;
     }
@@ -1584,6 +1614,11 @@ public class CassandraHiveMetaStore implements RawStore
         }
     }
 
+    @Override
+    public List<Function> getAllFunctions() throws MetaException {
+        return null;
+    }
+
     @Override public List<String> getFunctions(String dbName, String functionNamePattern)
     {
         if (schemaManagerService.getSystemKeyspaces().contains(dbName))
@@ -1655,5 +1690,80 @@ public class CassandraHiveMetaStore implements RawStore
     @Override public CurrentNotificationEventId getCurrentNotificationEventId()
     {
         return null;
+    }
+
+    @Override
+    public void flushCache() {
+
+    }
+
+    @Override
+    public ByteBuffer[] getFileMetadata(List<Long> fileIds) throws MetaException {
+        return new ByteBuffer[0];
+    }
+
+    @Override
+    public void putFileMetadata(List<Long> fileIds, List<ByteBuffer> metadata, FileMetadataExprType type) throws MetaException {
+
+    }
+
+    @Override
+    public boolean isFileMetadataSupported() {
+        return false;
+    }
+
+    @Override
+    public void getFileMetadataByExpr(List<Long> fileIds, FileMetadataExprType type, byte[] expr, ByteBuffer[] metadatas, ByteBuffer[] exprResults, boolean[] eliminated) throws MetaException {
+
+    }
+
+    @Override
+    public FileMetadataHandler getFileMetadataHandler(FileMetadataExprType type) {
+        return null;
+    }
+
+    @Override
+    public int getTableCount() throws MetaException {
+        return 0;
+    }
+
+    @Override
+    public int getPartitionCount() throws MetaException {
+        return 0;
+    }
+
+    @Override
+    public int getDatabaseCount() throws MetaException {
+        return 0;
+    }
+
+    @Override
+    public List<SQLPrimaryKey> getPrimaryKeys(String db_name, String tbl_name) throws MetaException {
+        return null;
+    }
+
+    @Override
+    public List<SQLForeignKey> getForeignKeys(String parent_db_name, String parent_tbl_name, String foreign_db_name, String foreign_tbl_name) throws MetaException {
+        return null;
+    }
+
+    @Override
+    public void createTableWithConstraints(Table tbl, List<SQLPrimaryKey> primaryKeys, List<SQLForeignKey> foreignKeys) throws InvalidObjectException, MetaException {
+
+    }
+
+    @Override
+    public void dropConstraint(String dbName, String tableName, String constraintName) throws NoSuchObjectException {
+
+    }
+
+    @Override
+    public void addPrimaryKeys(List<SQLPrimaryKey> pks) throws InvalidObjectException, MetaException {
+
+    }
+
+    @Override
+    public void addForeignKeys(List<SQLForeignKey> fks) throws InvalidObjectException, MetaException {
+
     }
 }

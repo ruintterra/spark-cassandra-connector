@@ -1,12 +1,12 @@
 object Versions {
 
   val CommonsExec     = "1.3"
-  val CommonsIO       = "2.6"
-  val CommonsLang3    = "3.5"
+  val CommonsIO       = "2.7"
+  val CommonsLang3    = "3.10"
   val Paranamer       = "2.8"
-  val ScalaLogging    = "3.5.0"
+  val ScalaLogging    = "3.8.0"
 
-  val DataStaxJavaDriver = "4.5.0"
+  val DataStaxJavaDriver = "4.6.1"
   val ReactiveStreams = "1.0.2"
 
   val ScalaCheck      = "1.14.0"
@@ -14,7 +14,7 @@ object Versions {
   val JUnit           = "4.12"
   val JUnitInterface  = "0.11"
   val Mockito         = "1.10.19"
-  val Slf4j           = "1.6.1"//1.7.7"
+  val Slf4j           = "1.7.25"//1.7.7"
 
   // Spark version can be specified as:
   // - regular version which is present in some public Maven repository
@@ -24,8 +24,8 @@ object Versions {
   // and install in a local Maven repository. This is all done automatically, however it will work
   // only on Unix/OSX operating system. Windows users have to build and install Spark manually if the
   // desired version is not yet published into a public Maven repository.
-  val ApacheSpark     = "2.4.3"
-  val SparkJetty      = "9.3.24.v20180605"
+  val ApacheSpark     = "3.0.0-preview2"
+  val SparkJetty      = "9.4.18.v20190429"
   val SolrJ           = "8.3.0"
 
   /*
